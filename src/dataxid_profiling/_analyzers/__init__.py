@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 # Base stats — shared across all column types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class BaseStats:
     column_name: str
@@ -26,6 +27,7 @@ class BaseStats:
 # ---------------------------------------------------------------------------
 # Type-specific stats
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class NumericStats(BaseStats):
@@ -57,6 +59,10 @@ class NumericStats(BaseStats):
     monotonic_decrease: bool = False
     histogram: list[dict[str, Any]] = field(default_factory=list)
     value_counts: list[dict[str, Any]] = field(default_factory=list)
+    # Time series
+    is_timeseries: bool = False
+    adf_pvalue: float | None = None
+    is_stationary: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,6 +133,7 @@ ColumnStats = NumericStats | CategoricalStats | BooleanStats | DatetimeStats | T
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
+
 
 def analyze(
     df: pl.DataFrame,

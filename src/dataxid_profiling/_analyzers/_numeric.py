@@ -60,6 +60,9 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
     histogram = _compute_histogram(df, col_name, config.histogram_bins)
     top_values = _compute_value_counts(df, col_name, config.n_top_values)
 
+    is_ts = _detect_timeseries(df, col_name, config)
+    adf_pvalue, is_stationary = _adf_stationarity(df, col_name, config) if is_ts else (None, False)
+
     return NumericStats(
         column_name=col_name,
         column_type=ColumnType.NUMERIC,
@@ -94,6 +97,9 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
         monotonic_decrease=monotonic_dec,
         histogram=histogram,
         value_counts=top_values,
+        is_timeseries=is_ts,
+        adf_pvalue=adf_pvalue,
+        is_stationary=is_stationary,
     )
 
 
@@ -115,9 +121,7 @@ def _check_monotonic(df: pl.DataFrame, col_name: str) -> tuple[bool, bool]:
     return bool(row["inc"]), bool(row["dec"])
 
 
-def _compute_value_counts(
-    df: pl.DataFrame, col_name: str, n: int
-) -> list[dict[str, Any]]:
+def _compute_value_counts(df: pl.DataFrame, col_name: str, n: int) -> list[dict[str, Any]]:
     """Top N most frequent values."""
     try:
         vc = (
@@ -128,17 +132,12 @@ def _compute_value_counts(
             .sort("len", descending=True)
             .head(n)
         )
-        return [
-            {"value": row[col_name], "count": row["len"]}
-            for row in vc.iter_rows(named=True)
-        ]
+        return [{"value": row[col_name], "count": row["len"]} for row in vc.iter_rows(named=True)]
     except Exception:
         return []
 
 
-def _compute_histogram(
-    df: pl.DataFrame, col_name: str, bin_count: int
-) -> list[dict[str, Any]]:
+def _compute_histogram(df: pl.DataFrame, col_name: str, bin_count: int) -> list[dict[str, Any]]:
     try:
         hist_df = df.select(
             pl.col(col_name).hist(bin_count=bin_count, include_breakpoint=True)
@@ -153,6 +152,57 @@ def _compute_histogram(
         ]
     except Exception:
         return []
+
+
+def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> bool:
+    """Detect time dependence via lagged autocorrelation (Polars-native)."""
+    if not config.ts_active:
+        return False
+
+    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    n = vals.len()
+    if n < 3:
+        return False
+
+    mean = vals.mean()
+    var = vals.var()
+    if mean is None or var is None or var <= 0:
+        return False
+
+    for lag in config.ts_lags:
+        if lag >= n:
+            continue
+        orig = vals.slice(0, n - lag)
+        shifted = vals.slice(lag, n - lag)
+        cov = ((orig - mean) * (shifted - mean)).sum() / (n - lag)
+        if cov / var >= config.ts_autocorrelation_threshold:
+            return True
+
+    return False
+
+
+def _adf_stationarity(
+    df: pl.DataFrame, col_name: str, config: ProfileConfig
+) -> tuple[float | None, bool]:
+    """Augmented Dickey-Fuller test via statsmodels."""
+    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    n = vals.len()
+    if n < 5:
+        return None, False
+
+    try:
+        from statsmodels.tsa.stattools import adfuller
+
+        result = adfuller(
+            vals.to_numpy(),
+            autolag=config.ts_adf_autolag,
+            maxlag=config.ts_adf_maxlag,
+        )
+        p_value = float(result[1])
+    except Exception:
+        return None, False
+
+    return p_value, p_value < config.ts_significance
 
 
 def _safe_float(val: Any) -> float | None:

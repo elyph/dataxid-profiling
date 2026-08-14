@@ -113,12 +113,14 @@ class TestRenderCorrelations:
         assert "corr_cramers_v" in html
 
     def test_mixed_has_all_tabs(self):
-        df = pl.DataFrame({
-            "n1": [1, 2, 3, 4, 5],
-            "n2": [5, 4, 3, 2, 1],
-            "c1": ["a", "b", "a", "b", "a"],
-            "c2": ["x", "y", "x", "y", "x"],
-        })
+        df = pl.DataFrame(
+            {
+                "n1": [1, 2, 3, 4, 5],
+                "n2": [5, 4, 3, 2, 1],
+                "c1": ["a", "b", "a", "b", "a"],
+                "c2": ["x", "y", "x", "y", "x"],
+            }
+        )
         html = _render(df)
         assert "corr_pearson" in html
         assert "corr_cramers_v" in html
@@ -160,9 +162,7 @@ class TestRenderCharts:
 
 class TestRenderCategoricalOther:
     def _truncated_df(self) -> pl.DataFrame:
-        return pl.DataFrame(
-            {"cat": ["a"] * 5 + ["b"] * 4 + ["c"] * 3 + ["d"] * 2 + ["e"] * 1}
-        )
+        return pl.DataFrame({"cat": ["a"] * 5 + ["b"] * 4 + ["c"] * 3 + ["d"] * 2 + ["e"] * 1})
 
     def test_other_bar_in_chart_when_truncated(self):
         from dataxid_profiling._analyzers import CategoricalStats, OtherValues
@@ -258,7 +258,7 @@ class TestRenderMissingSection:
         html = _render(df)
         assert "Missing Values" in html
         table_start = html.index("Missing Values")
-        table_section = html[table_start:table_start + 3000]
+        table_section = html[table_start : table_start + 3000]
         assert ">a<" in table_section
         assert ">b<" not in table_section
 
@@ -291,6 +291,22 @@ class TestRenderDuplicateSection:
         df = pl.DataFrame({"a": [1, 2, 3]})
         html = _render(df)
         assert html.count("Duplicate Rows") == 1
+
+
+class TestRenderTimeSeries:
+    def test_timeseries_rows_present(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert "ADF p-value" in html
+        assert "Stationary" in html
+
+    def test_timeseries_rows_absent_when_not_ts(self):
+        import random
+
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        html = _render(df)
+        assert "ADF p-value" not in html
 
 
 class TestRenderReproduction:

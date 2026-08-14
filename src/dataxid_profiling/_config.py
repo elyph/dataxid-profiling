@@ -35,8 +35,16 @@ class ProfileConfig:
     n_top_values: int = 5  # value_counts'ta gösterilecek top N
     histogram_bins: int = 50
 
-    # Time series
+    # Time series (datetime quality checks)
     ts_gap_multiplier: float = 2.0  # diff > multiplier × median_interval → gap
+
+    # Time series (numeric detection + analysis)
+    ts_active: bool = True
+    ts_autocorrelation_threshold: float = 0.7
+    ts_lags: tuple[int, ...] = (1, 7, 12, 24, 30)
+    ts_significance: float = 0.05
+    ts_adf_autolag: str = "AIC"
+    ts_adf_maxlag: int | None = None
 
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
     mode: Literal["complete", "overview"] = "complete"
@@ -75,4 +83,28 @@ class ProfileConfig:
                 "interaction_cardinality_limit must be >= 2, "
                 f"got {self.interaction_cardinality_limit}"
             )
+            raise ValueError(msg)
+        if not 0.0 <= self.ts_autocorrelation_threshold <= 1.0:
+            msg = (
+                "ts_autocorrelation_threshold must be in [0, 1], "
+                f"got {self.ts_autocorrelation_threshold}"
+            )
+            raise ValueError(msg)
+        if not self.ts_lags:
+            msg = "ts_lags must be a non-empty tuple of positive integers"
+            raise ValueError(msg)
+        if any(lag < 1 for lag in self.ts_lags):
+            msg = f"ts_lags entries must be positive integers, got {self.ts_lags}"
+            raise ValueError(msg)
+        if not 0.0 < self.ts_significance < 1.0:
+            msg = f"ts_significance must be in (0, 1), got {self.ts_significance}"
+            raise ValueError(msg)
+        if self.ts_adf_autolag not in {"AIC", "BIC", "t-stat"}:
+            msg = (
+                "ts_adf_autolag must be one of 'AIC', 'BIC', 't-stat', "
+                f"got {self.ts_adf_autolag!r}"
+            )
+            raise ValueError(msg)
+        if self.ts_adf_maxlag is not None and self.ts_adf_maxlag < 1:
+            msg = f"ts_adf_maxlag must be None or a positive integer, got {self.ts_adf_maxlag}"
             raise ValueError(msg)

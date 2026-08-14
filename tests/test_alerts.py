@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 import polars as pl
 import pytest
 
@@ -11,9 +13,7 @@ from dataxid_profiling._dataset_overview import compute_overview
 from dataxid_profiling._type_inference import infer_types
 
 
-def _get_alerts(
-    df: pl.DataFrame, config: ProfileConfig | None = None
-) -> list[Alert]:
+def _get_alerts(df: pl.DataFrame, config: ProfileConfig | None = None) -> list[Alert]:
     config = config or ProfileConfig()
     column_types = infer_types(df, config)
     column_stats = analyze(df, column_types, config)
@@ -47,8 +47,7 @@ class TestHighMissing:
         df = pl.DataFrame({"a": [1, None, None, 4, 5]})
         alerts = _get_alerts(df, ProfileConfig(missing_threshold=0.05))
         missing_alerts = [
-            a for a in alerts
-            if a.alert_type == AlertType.HIGH_MISSING and a.column == "a"
+            a for a in alerts if a.alert_type == AlertType.HIGH_MISSING and a.column == "a"
         ]
         assert len(missing_alerts) == 1
         assert missing_alerts[0].value == pytest.approx(0.4)
@@ -163,6 +162,7 @@ class TestHighCorrelation:
 
     def test_no_alert_below_threshold(self):
         import random
+
         random.seed(42)
         df = pl.DataFrame({"a": list(range(50)), "b": [random.random() for _ in range(50)]})
         alerts = _get_alerts(df, ProfileConfig(correlation_threshold=0.9))
@@ -197,9 +197,9 @@ class TestHighCorrelation:
 class TestUniform:
     def test_triggers_on_uniform_distribution(self):
         df = pl.DataFrame({"cat": ["A", "B", "C", "D"] * 25})
-        alerts = _get_alerts(df, ProfileConfig(
-            uniform_pvalue_threshold=0.05, text_unique_ratio=1.0
-        ))
+        alerts = _get_alerts(
+            df, ProfileConfig(uniform_pvalue_threshold=0.05, text_unique_ratio=1.0)
+        )
         uniform_alerts = [a for a in alerts if a.alert_type == AlertType.UNIFORM]
         assert len(uniform_alerts) == 1
         assert uniform_alerts[0].column == "cat"
@@ -208,18 +208,22 @@ class TestUniform:
 
     def test_no_alert_on_skewed_distribution(self):
         df = pl.DataFrame({"cat": ["A"] * 90 + ["B"] * 5 + ["C"] * 5})
-        alerts = _get_alerts(df, ProfileConfig(
-            uniform_pvalue_threshold=0.05, text_unique_ratio=1.0,
-            imbalance_threshold=1.0,
-        ))
+        alerts = _get_alerts(
+            df,
+            ProfileConfig(
+                uniform_pvalue_threshold=0.05,
+                text_unique_ratio=1.0,
+                imbalance_threshold=1.0,
+            ),
+        )
         uniform_alerts = [a for a in alerts if a.alert_type == AlertType.UNIFORM]
         assert len(uniform_alerts) == 0
 
     def test_details_contains_p_value(self):
         df = pl.DataFrame({"cat": ["X", "Y", "Z"] * 30})
-        alerts = _get_alerts(df, ProfileConfig(
-            uniform_pvalue_threshold=0.05, text_unique_ratio=1.0
-        ))
+        alerts = _get_alerts(
+            df, ProfileConfig(uniform_pvalue_threshold=0.05, text_unique_ratio=1.0)
+        )
         uniform_alerts = [a for a in alerts if a.alert_type == AlertType.UNIFORM]
         assert len(uniform_alerts) == 1
         assert "p_value" in uniform_alerts[0].details
@@ -235,24 +239,34 @@ class TestUniform:
 class TestDatetimeAlerts:
     def test_unsorted_dates_alert(self):
         from datetime import datetime
-        df = pl.DataFrame({"ts": [
-            datetime(2024, 1, 3),
-            datetime(2024, 1, 1),
-            datetime(2024, 1, 2),
-        ]})
+
+        df = pl.DataFrame(
+            {
+                "ts": [
+                    datetime(2024, 1, 3),
+                    datetime(2024, 1, 1),
+                    datetime(2024, 1, 2),
+                ]
+            }
+        )
         alerts = _get_alerts(df)
         ts_alerts = _alerts_for_column(alerts, "ts")
         assert any(a.alert_type == AlertType.UNSORTED_DATES for a in ts_alerts)
 
     def test_irregular_intervals_alert(self):
         from datetime import datetime
-        df = pl.DataFrame({"ts": [
-            datetime(2024, 1, 1, 0, 0),
-            datetime(2024, 1, 1, 1, 0),
-            datetime(2024, 1, 1, 5, 0),
-            datetime(2024, 1, 1, 6, 30),
-            datetime(2024, 1, 2, 0, 0),
-        ]})
+
+        df = pl.DataFrame(
+            {
+                "ts": [
+                    datetime(2024, 1, 1, 0, 0),
+                    datetime(2024, 1, 1, 1, 0),
+                    datetime(2024, 1, 1, 5, 0),
+                    datetime(2024, 1, 1, 6, 30),
+                    datetime(2024, 1, 2, 0, 0),
+                ]
+            }
+        )
         alerts = _get_alerts(df)
         ts_alerts = _alerts_for_column(alerts, "ts")
         assert any(a.alert_type == AlertType.IRREGULAR_INTERVALS for a in ts_alerts)
@@ -261,14 +275,19 @@ class TestDatetimeAlerts:
 
     def test_large_gaps_alert(self):
         from datetime import datetime
-        df = pl.DataFrame({"ts": [
-            datetime(2024, 1, 1, 0, 0),
-            datetime(2024, 1, 1, 1, 0),
-            datetime(2024, 1, 1, 2, 0),
-            datetime(2024, 1, 5, 0, 0),
-            datetime(2024, 1, 5, 1, 0),
-            datetime(2024, 1, 5, 2, 0),
-        ]})
+
+        df = pl.DataFrame(
+            {
+                "ts": [
+                    datetime(2024, 1, 1, 0, 0),
+                    datetime(2024, 1, 1, 1, 0),
+                    datetime(2024, 1, 1, 2, 0),
+                    datetime(2024, 1, 5, 0, 0),
+                    datetime(2024, 1, 5, 1, 0),
+                    datetime(2024, 1, 5, 2, 0),
+                ]
+            }
+        )
         alerts = _get_alerts(df)
         ts_alerts = _alerts_for_column(alerts, "ts")
         assert any(a.alert_type == AlertType.LARGE_GAPS for a in ts_alerts)
@@ -278,38 +297,71 @@ class TestDatetimeAlerts:
 
     def test_sorted_no_datetime_alerts(self):
         from datetime import datetime, timedelta
+
         base = datetime(2024, 1, 1, 0, 0)
-        df = pl.DataFrame({
-            "ts": [base + timedelta(hours=i) for i in range(100)]
-        })
+        df = pl.DataFrame({"ts": [base + timedelta(hours=i) for i in range(100)]})
         alerts = _get_alerts(df)
         datetime_alerts = [
-            a for a in alerts
-            if a.alert_type in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
+            a
+            for a in alerts
+            if a.alert_type
+            in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
         ]
         assert len(datetime_alerts) == 0
 
     def test_single_date_no_datetime_alerts(self):
         from datetime import date
+
         df = pl.DataFrame({"d": [date(2024, 6, 15)]})
         alerts = _get_alerts(df)
         datetime_alerts = [
-            a for a in alerts
-            if a.alert_type in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
+            a
+            for a in alerts
+            if a.alert_type
+            in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
         ]
         assert len(datetime_alerts) == 0
 
 
 class TestCleanData:
     def test_no_alerts_on_clean_data(self):
-        df = pl.DataFrame({
-            "score": [10, 20, 30, 40, 50, 10, 20, 30, 40, 50],
-            "city": ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"],
-            "active": [True, False, True, False, True, False, True, False, True, False],
-        })
+        df = pl.DataFrame(
+            {
+                "score": [10, 20, 30, 40, 50, 10, 20, 30, 40, 50],
+                "city": ["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"],
+                "active": [True, False, True, False, True, False, True, False, True, False],
+            }
+        )
         alerts = _get_alerts(df)
         col_alerts = [
-            a for a in alerts
-            if a.column is not None and a.alert_type != AlertType.UNIFORM
+            a for a in alerts if a.column is not None and a.alert_type != AlertType.UNIFORM
         ]
         assert len(col_alerts) == 0
+
+
+class TestTimeSeriesAlerts:
+    def test_linear_trend_non_stationary_alert(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)
+
+    def test_white_noise_no_non_stationary_alert(self):
+        rng = random.Random(7)
+        df = pl.DataFrame({"val": [rng.gauss(0, 1) for _ in range(500)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert not any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)
+
+    def test_random_no_non_stationary_alert(self):
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert not any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)
+
+    def test_ts_active_false_no_non_stationary_alert(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        alerts = _get_alerts(df, ProfileConfig(ts_active=False))
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert not any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)

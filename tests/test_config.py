@@ -27,6 +27,15 @@ class TestProfileConfigDefaults:
         assert cfg.n_top_values == 5
         assert cfg.histogram_bins == 50
 
+    def test_default_time_series(self):
+        cfg = ProfileConfig()
+        assert cfg.ts_active is True
+        assert cfg.ts_autocorrelation_threshold == 0.7
+        assert cfg.ts_lags == (1, 7, 12, 24, 30)
+        assert cfg.ts_significance == 0.05
+        assert cfg.ts_adf_autolag == "AIC"
+        assert cfg.ts_adf_maxlag is None
+
 
 class TestProfileConfigCustom:
     def test_custom_title(self):
@@ -80,3 +89,27 @@ class TestProfileConfigValidation:
     def test_invalid_mode(self):
         with pytest.raises(ValueError, match="mode"):
             ProfileConfig(mode="invalid")
+
+    def test_invalid_ts_autocorrelation_threshold(self):
+        with pytest.raises(ValueError, match="ts_autocorrelation_threshold"):
+            ProfileConfig(ts_autocorrelation_threshold=1.5)
+
+    def test_invalid_ts_lags_empty(self):
+        with pytest.raises(ValueError, match="ts_lags"):
+            ProfileConfig(ts_lags=())
+
+    def test_invalid_ts_lags_negative(self):
+        with pytest.raises(ValueError, match="ts_lags"):
+            ProfileConfig(ts_lags=(1, -7))
+
+    def test_invalid_ts_significance(self):
+        with pytest.raises(ValueError, match="ts_significance"):
+            ProfileConfig(ts_significance=0.0)
+
+    def test_invalid_ts_adf_autolag(self):
+        with pytest.raises(ValueError, match="ts_adf_autolag"):
+            ProfileConfig(ts_adf_autolag="invalid")
+
+    def test_invalid_ts_adf_maxlag(self):
+        with pytest.raises(ValueError, match="ts_adf_maxlag"):
+            ProfileConfig(ts_adf_maxlag=0)

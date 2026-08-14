@@ -35,6 +35,7 @@ class AlertType(Enum):
     UNSORTED_DATES = auto()
     IRREGULAR_INTERVALS = auto()
     LARGE_GAPS = auto()
+    NON_STATIONARY = auto()
 
 
 @dataclass(frozen=True)
@@ -54,11 +55,13 @@ def check_quality(
     alerts: list[Alert] = []
 
     if overview.duplicate_rows_pct > config.duplicate_threshold:
-        alerts.append(Alert(
-            column=None,
-            alert_type=AlertType.DUPLICATES,
-            value=overview.duplicate_rows_pct,
-        ))
+        alerts.append(
+            Alert(
+                column=None,
+                alert_type=AlertType.DUPLICATES,
+                value=overview.duplicate_rows_pct,
+            )
+        )
 
     for col_name, stats in column_stats.items():
         alerts.extend(_check_column(col_name, stats, config))
@@ -116,6 +119,16 @@ def _check_numeric(
 
     if stats.skewness is not None and abs(stats.skewness) > config.skewness_threshold:
         alerts.append(Alert(col_name, AlertType.SKEWED, abs(stats.skewness)))
+
+    if stats.is_timeseries and stats.adf_pvalue is not None and not stats.is_stationary:
+        alerts.append(
+            Alert(
+                column=col_name,
+                alert_type=AlertType.NON_STATIONARY,
+                value=stats.adf_pvalue,
+                details={"adf_pvalue": stats.adf_pvalue},
+            )
+        )
 
     return alerts
 
@@ -221,12 +234,14 @@ def _check_correlations(
                 continue
             corr = abs(float(val))
             if corr > config.correlation_threshold:
-                alerts.append(Alert(
-                    column=col_a,
-                    alert_type=AlertType.HIGH_CORRELATION,
-                    value=corr,
-                    details={"column_b": col_b, "method": matrix_key},
-                ))
+                alerts.append(
+                    Alert(
+                        column=col_a,
+                        alert_type=AlertType.HIGH_CORRELATION,
+                        value=corr,
+                        details={"column_b": col_b, "method": matrix_key},
+                    )
+                )
 
     return alerts
 
@@ -239,38 +254,44 @@ def _check_datetime(
     alerts: list[Alert] = []
 
     if not stats.is_sorted:
-        alerts.append(Alert(
-            column=col_name,
-            alert_type=AlertType.UNSORTED_DATES,
-            value=1.0,
-            details={
-                "is_monotonic_increasing": stats.is_monotonic_increasing,
-                "is_monotonic_decreasing": stats.is_monotonic_decreasing,
-            },
-        ))
+        alerts.append(
+            Alert(
+                column=col_name,
+                alert_type=AlertType.UNSORTED_DATES,
+                value=1.0,
+                details={
+                    "is_monotonic_increasing": stats.is_monotonic_increasing,
+                    "is_monotonic_decreasing": stats.is_monotonic_decreasing,
+                },
+            )
+        )
 
     if not stats.is_regular_interval and stats.sampling_interval_std_seconds is not None:
-        alerts.append(Alert(
-            column=col_name,
-            alert_type=AlertType.IRREGULAR_INTERVALS,
-            value=stats.sampling_interval_std_seconds,
-            details={
-                "mean_seconds": stats.sampling_interval_mean_seconds,
-                "median_seconds": stats.sampling_interval_median_seconds,
-                "std_seconds": stats.sampling_interval_std_seconds,
-            },
-        ))
+        alerts.append(
+            Alert(
+                column=col_name,
+                alert_type=AlertType.IRREGULAR_INTERVALS,
+                value=stats.sampling_interval_std_seconds,
+                details={
+                    "mean_seconds": stats.sampling_interval_mean_seconds,
+                    "median_seconds": stats.sampling_interval_median_seconds,
+                    "std_seconds": stats.sampling_interval_std_seconds,
+                },
+            )
+        )
 
     if stats.n_gaps > 0:
-        alerts.append(Alert(
-            column=col_name,
-            alert_type=AlertType.LARGE_GAPS,
-            value=float(stats.n_gaps),
-            details={
-                "n_gaps": stats.n_gaps,
-                "max_gap_seconds": stats.max_gap_seconds,
-                "median_interval_seconds": stats.sampling_interval_median_seconds,
-            },
-        ))
+        alerts.append(
+            Alert(
+                column=col_name,
+                alert_type=AlertType.LARGE_GAPS,
+                value=float(stats.n_gaps),
+                details={
+                    "n_gaps": stats.n_gaps,
+                    "max_gap_seconds": stats.max_gap_seconds,
+                    "median_interval_seconds": stats.sampling_interval_median_seconds,
+                },
+            )
+        )
 
     return alerts

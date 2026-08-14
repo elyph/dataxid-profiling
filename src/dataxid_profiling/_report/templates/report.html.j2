@@ -243,6 +243,11 @@
                   <tr class="stat-row"><td class="{{ s }} {{ l }}">Infinite</td><td class="{{ s }} {{ r }}">{{ col_data.n_infinite }}</td></tr>
                   {% if col_data.monotonic_increase %}<tr class="stat-row"><td class="{{ s }} {{ l }}">Monotonic</td><td class="{{ s }} {{ r }}">Increasing</td></tr>{% endif %}
                   {% if col_data.monotonic_decrease %}<tr class="stat-row"><td class="{{ s }} {{ l }}">Monotonic</td><td class="{{ s }} {{ r }}">Decreasing</td></tr>{% endif %}
+                  {% if col_data.is_timeseries %}
+                  <tr class="stat-row"><th colspan="2" class="py-2 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50">Time Series</th></tr>
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">ADF p-value</td><td class="{{ s }} {{ r }}">{{ col_data.adf_pvalue | format_float }}</td></tr>
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">Stationary</td><td class="{{ s }} {{ r }}">{{ col_data.is_stationary }}</td></tr>
+                  {% endif %}
                   {% endif %}
 
                   {% if col_data.column_type == "CATEGORICAL" %}

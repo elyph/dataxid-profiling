@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import random
+
 import polars as pl
 import pytest
 
@@ -233,3 +236,60 @@ class TestNumericNewMetrics:
         config = ProfileConfig(n_top_values=3)
         stats = analyze_numeric(df, "val", config)
         assert len(stats.value_counts) == 3
+
+
+class TestNumericTimeSeries:
+    def test_linear_trend_is_timeseries(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+
+    def test_random_is_not_timeseries(self, config: ProfileConfig):
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is False
+
+    def test_constant_is_not_timeseries(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [3.0] * 100})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is False
+        assert stats.adf_pvalue is None
+
+    def test_seasonal_sine_is_timeseries(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(100)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+
+    def test_ts_active_false_disables_detection(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        config = ProfileConfig(ts_active=False)
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is False
+        assert stats.adf_pvalue is None
+
+    def test_short_series_no_timeseries(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [1.0, 2.0]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is False
+        assert stats.adf_pvalue is None
+
+    def test_null_heavy_does_not_crash(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) if i % 3 != 0 else None for i in range(60)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries in (True, False)
+
+    def test_linear_trend_non_stationary(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.adf_pvalue is not None
+        assert stats.is_stationary is False
+
+    def test_white_noise_stationary(self, config: ProfileConfig):
+        rng = random.Random(7)
+        df = pl.DataFrame({"val": [rng.gauss(0, 1) for _ in range(500)]})
+        stats = analyze_numeric(df, "val", config)
+        if stats.is_timeseries:
+            assert stats.adf_pvalue is not None
+            assert stats.is_stationary is True
