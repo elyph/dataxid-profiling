@@ -99,6 +99,17 @@ class DatetimeStats(BaseStats):
     min: str | None = None
     max: str | None = None
     range: str | None = None
+    # Time series
+    is_sorted: bool = False
+    is_monotonic_increasing: bool = False
+    is_monotonic_decreasing: bool = False
+    sampling_interval_median_seconds: float | None = None
+    sampling_interval_mean_seconds: float | None = None
+    sampling_interval_std_seconds: float | None = None
+    is_regular_interval: bool = False
+    n_gaps: int = 0
+    max_gap_seconds: float | None = None
+    autocorrelation_lag1: float | None = None
 
 
 @dataclass(frozen=True)

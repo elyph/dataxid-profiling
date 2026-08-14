@@ -273,6 +273,18 @@
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Min</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.min or "—" }}</td></tr>
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Max</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.max or "—" }}</td></tr>
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Range</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.range or "—" }}</td></tr>
+
+                  <tr class="stat-row"><th colspan="2" class="py-2 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50">Time Series</th></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Sorted</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.is_sorted }}</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Monotonic Increasing</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.is_monotonic_increasing }}</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Monotonic Decreasing</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.is_monotonic_decreasing }}</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Sampling Interval (median)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.sampling_interval_median_seconds }} s</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Sampling Interval (mean)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.sampling_interval_mean_seconds }} s</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Sampling Interval (std)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.sampling_interval_std_seconds }} s</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Regular Interval</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.is_regular_interval }}</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Gaps</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.n_gaps }}</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Max Gap</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.max_gap_seconds }} s</td></tr>
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Autocorrelation (lag-1)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.autocorrelation_lag1 }}</td></tr>
                   {% endif %}
 
                   {% if col_data.column_type == "TEXT" %}

@@ -232,6 +232,74 @@ class TestUniform:
         assert len(uniform_alerts) == 0
 
 
+class TestDatetimeAlerts:
+    def test_unsorted_dates_alert(self):
+        from datetime import datetime
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 3),
+            datetime(2024, 1, 1),
+            datetime(2024, 1, 2),
+        ]})
+        alerts = _get_alerts(df)
+        ts_alerts = _alerts_for_column(alerts, "ts")
+        assert any(a.alert_type == AlertType.UNSORTED_DATES for a in ts_alerts)
+
+    def test_irregular_intervals_alert(self):
+        from datetime import datetime
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 1, 0),
+            datetime(2024, 1, 1, 5, 0),
+            datetime(2024, 1, 1, 6, 30),
+            datetime(2024, 1, 2, 0, 0),
+        ]})
+        alerts = _get_alerts(df)
+        ts_alerts = _alerts_for_column(alerts, "ts")
+        assert any(a.alert_type == AlertType.IRREGULAR_INTERVALS for a in ts_alerts)
+        irregular = [a for a in ts_alerts if a.alert_type == AlertType.IRREGULAR_INTERVALS]
+        assert irregular[0].details["std_seconds"] > 0
+
+    def test_large_gaps_alert(self):
+        from datetime import datetime
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 1, 0),
+            datetime(2024, 1, 1, 2, 0),
+            datetime(2024, 1, 5, 0, 0),
+            datetime(2024, 1, 5, 1, 0),
+            datetime(2024, 1, 5, 2, 0),
+        ]})
+        alerts = _get_alerts(df)
+        ts_alerts = _alerts_for_column(alerts, "ts")
+        assert any(a.alert_type == AlertType.LARGE_GAPS for a in ts_alerts)
+        gap_alerts = [a for a in ts_alerts if a.alert_type == AlertType.LARGE_GAPS]
+        assert gap_alerts[0].details["n_gaps"] == 1
+        assert gap_alerts[0].details["max_gap_seconds"] > 300_000
+
+    def test_sorted_no_datetime_alerts(self):
+        from datetime import datetime, timedelta
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame({
+            "ts": [base + timedelta(hours=i) for i in range(100)]
+        })
+        alerts = _get_alerts(df)
+        datetime_alerts = [
+            a for a in alerts
+            if a.alert_type in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
+        ]
+        assert len(datetime_alerts) == 0
+
+    def test_single_date_no_datetime_alerts(self):
+        from datetime import date
+        df = pl.DataFrame({"d": [date(2024, 6, 15)]})
+        alerts = _get_alerts(df)
+        datetime_alerts = [
+            a for a in alerts
+            if a.alert_type in (AlertType.UNSORTED_DATES, AlertType.IRREGULAR_INTERVALS, AlertType.LARGE_GAPS)
+        ]
+        assert len(datetime_alerts) == 0
+
+
 class TestCleanData:
     def test_no_alerts_on_clean_data(self):
         df = pl.DataFrame({

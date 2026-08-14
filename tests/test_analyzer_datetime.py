@@ -100,3 +100,180 @@ class TestDatetimeEdgeCases:
         stats = analyze_datetime(df, "d", config)
         assert stats.distinct_count == 1
         assert stats.min == stats.max
+
+    def test_single_value_time_series(self, config: ProfileConfig):
+        """Single row: is_sorted=True, no gaps, no autocorrelation."""
+        df = pl.DataFrame({"ts": [datetime(2024, 6, 15, 12, 0)]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is True
+        assert stats.is_monotonic_increasing is True
+        assert stats.n_gaps == 0
+        assert stats.autocorrelation_lag1 is None
+
+    def test_all_same_date(self, config: ProfileConfig):
+        """All dates identical: is_sorted=True, no gaps, interval 0."""
+        df = pl.DataFrame({"d": [date(2024, 6, 15)] * 5})
+        stats = analyze_datetime(df, "d", config)
+        assert stats.is_sorted is True
+        assert stats.is_monotonic_increasing is True
+        assert stats.n_gaps == 0
+        assert stats.sampling_interval_median_seconds == 0.0
+
+    def test_date_type_time_series(self, config: ProfileConfig):
+        """Date type should work with .dt.total_microseconds()."""
+        df = pl.DataFrame({"d": [
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 4),
+            date(2024, 1, 5),
+        ]})
+        stats = analyze_datetime(df, "d", config)
+        assert stats.is_sorted is True
+        assert stats.is_regular_interval is True
+        assert stats.sampling_interval_median_seconds == 86400.0
+        assert stats.n_gaps == 0
+
+    def test_null_heavy(self, config: ProfileConfig):
+        """Nulls are dropped, remaining values sorted correctly."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            None,
+            datetime(2024, 1, 1, 2, 0),
+            None,
+            datetime(2024, 1, 1, 4, 0),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.count == 5
+        assert stats.missing_count == 2
+        assert stats.is_sorted is True
+        assert stats.sampling_interval_median_seconds == 7200.0
+
+
+class TestDatetimeTimeSeries:
+    def test_sorted_hourly(self, config: ProfileConfig):
+        """100 rows, hourly — perfectly sorted and regular."""
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame({
+            "ts": [base + timedelta(hours=i) for i in range(100)]
+        })
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is True
+        assert stats.is_monotonic_increasing is True
+        assert stats.is_monotonic_decreasing is False
+        assert stats.is_regular_interval is True
+        assert stats.sampling_interval_median_seconds == 3600.0
+        assert stats.sampling_interval_mean_seconds == 3600.0
+        assert stats.n_gaps == 0
+        assert stats.max_gap_seconds is None
+
+    def test_sorted_descending(self, config: ProfileConfig):
+        """Descending order: is_sorted=True, decreasing."""
+        base = datetime(2024, 12, 31, 23, 0)
+        df = pl.DataFrame({
+            "ts": [base - timedelta(hours=i) for i in range(10)]
+        })
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is True
+        assert stats.is_monotonic_increasing is False
+        assert stats.is_monotonic_decreasing is True
+
+    def test_unsorted(self, config: ProfileConfig):
+        """Random order: is_sorted=False."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 3),
+            datetime(2024, 1, 1),
+            datetime(2024, 1, 2),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is False
+        assert stats.is_monotonic_increasing is False
+        assert stats.is_monotonic_decreasing is False
+
+    def test_gap_detection(self, config: ProfileConfig):
+        """Large gap > 2x median interval: n_gaps=1."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 1, 0),
+            datetime(2024, 1, 1, 2, 0),
+            datetime(2024, 1, 5, 0, 0),
+            datetime(2024, 1, 5, 1, 0),
+            datetime(2024, 1, 5, 2, 0),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is True
+        assert stats.n_gaps == 1
+        assert stats.max_gap_seconds is not None
+        assert stats.max_gap_seconds > 300_000  # ~94 hours in seconds
+
+    def test_no_gap_below_multiplier(self, config: ProfileConfig):
+        """Small variations within multiplier: no gaps."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 2, 0),
+            datetime(2024, 1, 1, 3, 0),
+            datetime(2024, 1, 1, 6, 0),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        # Median = (7200+3600+10800)/3 ~ 7200, 2x = 14400
+        # max diff = 10800 < 14400, so no gaps
+        assert stats.n_gaps == 0
+
+    def test_irregular_interval(self, config: ProfileConfig):
+        """High std/mean ratio: is_regular_interval=False."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 1, 0),
+            datetime(2024, 1, 1, 5, 0),
+            datetime(2024, 1, 1, 6, 30),
+            datetime(2024, 1, 2, 0, 0),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.is_sorted is True
+        assert stats.is_regular_interval is False
+        assert stats.sampling_interval_std_seconds is not None
+        assert stats.sampling_interval_mean_seconds is not None
+        assert stats.sampling_interval_std_seconds / stats.sampling_interval_mean_seconds > 0.01
+
+    def test_autocorrelation_linear_trend(self, config: ProfileConfig):
+        """Hourly data: strong positive lag-1 autocorrelation."""
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame({
+            "ts": [base + timedelta(hours=i) for i in range(100)]
+        })
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.autocorrelation_lag1 is not None
+        assert stats.autocorrelation_lag1 > 0.9
+
+    def test_autocorrelation_random(self, config: ProfileConfig):
+        """Random timestamps: autocorrelation near zero."""
+        from random import randrange
+        base = datetime(2024, 1, 1)
+        df = pl.DataFrame({
+            "ts": [base + timedelta(days=randrange(0, 365)) for _ in range(50)]
+        })
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.autocorrelation_lag1 is not None
+        assert abs(stats.autocorrelation_lag1) < 0.5
+
+    def test_two_rows_no_autocorr(self, config: ProfileConfig):
+        """2 rows: n-1 < 2 → no autocorrelation."""
+        df = pl.DataFrame({"ts": [
+            datetime(2024, 1, 1, 0, 0),
+            datetime(2024, 1, 1, 1, 0),
+        ]})
+        stats = analyze_datetime(df, "ts", config)
+        assert stats.autocorrelation_lag1 is None
+
+    def test_five_rows_mixed_interval(self, config: ProfileConfig):
+        """Sanity: 5 rows daily, median and mean should be 86400."""
+        df = pl.DataFrame({"d": [
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 4),
+            date(2024, 1, 5),
+        ]})
+        stats = analyze_datetime(df, "d", config)
+        assert stats.sampling_interval_median_seconds == 86400.0
+        assert stats.sampling_interval_mean_seconds == 86400.0

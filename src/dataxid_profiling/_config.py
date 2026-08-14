@@ -35,6 +35,9 @@ class ProfileConfig:
     n_top_values: int = 5  # value_counts'ta gösterilecek top N
     histogram_bins: int = 50
 
+    # Time series
+    ts_gap_multiplier: float = 2.0  # diff > multiplier × median_interval → gap
+
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
     mode: Literal["complete", "overview"] = "complete"
 

@@ -10,6 +10,7 @@ import polars_statistics as ps
 from dataxid_profiling._analyzers import (
     BooleanStats,
     CategoricalStats,
+    DatetimeStats,
     NumericStats,
 )
 from dataxid_profiling._dataset_overview import DatasetOverview  # noqa: TC001 — used at runtime
@@ -30,6 +31,10 @@ class AlertType(Enum):
     IMBALANCED = auto()
     HIGH_CORRELATION = auto()
     UNIFORM = auto()
+    # Time series
+    UNSORTED_DATES = auto()
+    IRREGULAR_INTERVALS = auto()
+    LARGE_GAPS = auto()
 
 
 @dataclass(frozen=True)
@@ -89,6 +94,9 @@ def _check_column(
 
     if isinstance(stats, BooleanStats):
         alerts.extend(_check_boolean(col_name, stats, config))
+
+    if isinstance(stats, DatetimeStats):
+        alerts.extend(_check_datetime(col_name, stats, config))
 
     return alerts
 
@@ -219,5 +227,50 @@ def _check_correlations(
                     value=corr,
                     details={"column_b": col_b, "method": matrix_key},
                 ))
+
+    return alerts
+
+
+def _check_datetime(
+    col_name: str,
+    stats: DatetimeStats,
+    config: ProfileConfig,  # noqa: ARG001 — kept for future threshold config
+) -> list[Alert]:
+    alerts: list[Alert] = []
+
+    if not stats.is_sorted:
+        alerts.append(Alert(
+            column=col_name,
+            alert_type=AlertType.UNSORTED_DATES,
+            value=1.0,
+            details={
+                "is_monotonic_increasing": stats.is_monotonic_increasing,
+                "is_monotonic_decreasing": stats.is_monotonic_decreasing,
+            },
+        ))
+
+    if not stats.is_regular_interval and stats.sampling_interval_std_seconds is not None:
+        alerts.append(Alert(
+            column=col_name,
+            alert_type=AlertType.IRREGULAR_INTERVALS,
+            value=stats.sampling_interval_std_seconds,
+            details={
+                "mean_seconds": stats.sampling_interval_mean_seconds,
+                "median_seconds": stats.sampling_interval_median_seconds,
+                "std_seconds": stats.sampling_interval_std_seconds,
+            },
+        ))
+
+    if stats.n_gaps > 0:
+        alerts.append(Alert(
+            column=col_name,
+            alert_type=AlertType.LARGE_GAPS,
+            value=float(stats.n_gaps),
+            details={
+                "n_gaps": stats.n_gaps,
+                "max_gap_seconds": stats.max_gap_seconds,
+                "median_interval_seconds": stats.sampling_interval_median_seconds,
+            },
+        ))
 
     return alerts

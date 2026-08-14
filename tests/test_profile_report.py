@@ -234,7 +234,7 @@ class TestProfileReportToHtml:
         html_path = tmp_path / "report.html"
         report.to_html(path=html_path)
         assert html_path.exists()
-        content = html_path.read_text()
+        content = html_path.read_text(encoding="utf-8")
         assert "<!DOCTYPE html>" in content
 
     def test_to_html_contains_columns(self, mixed_df: pl.DataFrame):
