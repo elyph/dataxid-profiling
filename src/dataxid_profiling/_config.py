@@ -46,6 +46,7 @@ class ProfileConfig:
     ts_adf_autolag: str = "AIC"
     ts_adf_maxlag: int | None = None
     ts_adf_max_points: int | None = 10_000
+    ts_acf_pacf_max_points: int | None = 10_000
     ts_line_max_points: int = 5_000
     ts_pacf_acf_lag: int = 50
 
@@ -113,6 +114,9 @@ class ProfileConfig:
             raise ValueError(msg)
         if self.ts_adf_max_points is not None and self.ts_adf_max_points < 5:
             msg = f"ts_adf_max_points must be None or >= 5, got {self.ts_adf_max_points}"
+            raise ValueError(msg)
+        if self.ts_acf_pacf_max_points is not None and self.ts_acf_pacf_max_points < 5:
+            msg = f"ts_acf_pacf_max_points must be None or >= 5, got {self.ts_acf_pacf_max_points}"
             raise ValueError(msg)
         if self.ts_line_max_points < 1:
             msg = f"ts_line_max_points must be >= 1, got {self.ts_line_max_points}"

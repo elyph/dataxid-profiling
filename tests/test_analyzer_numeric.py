@@ -326,3 +326,11 @@ class TestNumericTimeSeries:
         stats = analyze_numeric(df, "val", config)
         assert stats.acf_values == []
         assert stats.pacf_values == []
+
+    def test_acf_pacf_sampling_caps_points(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(50_000)]})
+        config = ProfileConfig(ts_acf_pacf_max_points=1_000)
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert len(stats.acf_values) > 0
+        assert len(stats.pacf_values) > 0

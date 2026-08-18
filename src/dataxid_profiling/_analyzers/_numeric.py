@@ -236,6 +236,15 @@ def _compute_acf_pacf(
     """Compute ACF and PACF via statsmodels for a time-series column."""
     vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
     n = vals.len()
+    if n < 3:
+        return [], []
+
+    if config.ts_acf_pacf_max_points is not None and n > config.ts_acf_pacf_max_points:
+        step = n / config.ts_acf_pacf_max_points
+        idxs = [int(i * step) for i in range(config.ts_acf_pacf_max_points)]
+        vals = vals.gather(idxs)
+        n = vals.len()
+
     nlags = min(config.ts_pacf_acf_lag, n - 2)
     if nlags < 1:
         return [], []
