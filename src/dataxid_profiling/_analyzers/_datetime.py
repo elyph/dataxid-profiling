@@ -94,12 +94,20 @@ def _analyze_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) 
     # Gap detection: diff > multiplier × median
     n_gaps = 0
     max_gap = None
+    gap_min = None
+    gap_mean = None
+    gap_std = None
+    gap_threshold = (
+        interval_median * config.ts_gap_multiplier if interval_median is not None else 0.0
+    )
     if interval_median is not None and interval_median > 0:
-        gap_threshold = interval_median * config.ts_gap_multiplier
         gaps = intervals.filter(intervals > gap_threshold)
         n_gaps = gaps.len()
         if n_gaps > 0:
             max_gap = gaps.max()
+            gap_min = gaps.min()
+            gap_mean = gaps.mean()
+            gap_std = gaps.std() if n_gaps > 1 else 0.0
 
     # Lag-1 autocorrelation
     acf_lag1 = None
@@ -112,24 +120,68 @@ def _analyze_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) 
                 shifted = vals.slice(1, n - 1)
                 original = vals.slice(0, n - 1)
                 acf_lag1 = float(
-                    ((original - mean_val) * (shifted - mean_val)).sum()
-                    / ((n - 1) * var_val)
+                    ((original - mean_val) * (shifted - mean_val)).sum() / ((n - 1) * var_val)
                 )
         except Exception:
             pass
+
+    interval_values, gap_indices = _sample_intervals_for_plot(
+        intervals, gap_threshold, config.ts_line_max_points
+    )
 
     return {
         "is_sorted": is_sorted,
         "is_monotonic_increasing": is_increasing,
         "is_monotonic_decreasing": is_decreasing,
-        "sampling_interval_median_seconds": round(interval_median, 3) if interval_median is not None else None,
-        "sampling_interval_mean_seconds": round(interval_mean, 3) if interval_mean is not None else None,
-        "sampling_interval_std_seconds": round(interval_std, 3) if interval_std is not None else None,
+        "sampling_interval_median_seconds": (
+            round(interval_median, 3) if interval_median is not None else None
+        ),
+        "sampling_interval_mean_seconds": (
+            round(interval_mean, 3) if interval_mean is not None else None
+        ),
+        "sampling_interval_std_seconds": (
+            round(interval_std, 3) if interval_std is not None else None
+        ),
         "is_regular_interval": is_regular,
         "n_gaps": n_gaps,
         "max_gap_seconds": round(max_gap, 3) if max_gap is not None else None,
         "autocorrelation_lag1": round(acf_lag1, 6) if acf_lag1 is not None else None,
+        "gap_min_seconds": round(gap_min, 3) if gap_min is not None else None,
+        "gap_mean_seconds": round(gap_mean, 3) if gap_mean is not None else None,
+        "gap_std_seconds": round(gap_std, 3) if gap_std is not None else None,
+        "gap_threshold_seconds": round(gap_threshold, 3) if gap_threshold > 0 else None,
+        "gap_indices": gap_indices,
+        "interval_values": interval_values,
     }
+
+
+def _sample_intervals_for_plot(
+    intervals: pl.Series, gap_threshold: float, max_points: int
+) -> tuple[list[float], list[int]]:
+    """Uniform-sample interval values for a gap plot.
+
+    Returns sampled interval values plus indices of sampled points that exceed
+    the gap threshold. Gap stats (n_gaps/min/mean/std/max) are computed on the
+    full series; this sampling only limits the visual payload.
+    """
+    vals = intervals.cast(pl.Float64)
+    n = vals.len()
+    if n == 0:
+        return [], []
+
+    if n > max_points:
+        step = n / max_points
+        idxs = [int(i * step) for i in range(max_points)]
+        sampled = vals.gather(idxs)
+        sampled_list = [round(float(v), 3) for v in sampled.to_list()]
+        gap_indices = [
+            i for i, v in enumerate(sampled_list) if gap_threshold > 0 and v > gap_threshold
+        ]
+        return sampled_list, gap_indices
+
+    full = [round(float(v), 3) for v in vals.to_list()]
+    gap_indices = [i for i, v in enumerate(full) if gap_threshold > 0 and v > gap_threshold]
+    return full, gap_indices
 
 
 def _compute_range(min_val: Any, max_val: Any) -> str | None:

@@ -60,6 +60,24 @@ class ChartRenderer(Protocol):
         title: str = "",
     ) -> str: ...
 
+    def line(
+        self,
+        div_id: str,
+        x: list[str],
+        y: list[float],
+        title: str = "",
+    ) -> str: ...
+
+    def gap_plot(
+        self,
+        div_id: str,
+        labels: list[str],
+        values: list[float],
+        gap_indices: list[int],
+        threshold: float | None = None,
+        title: str = "",
+    ) -> str: ...
+
 
 class EChartsRenderer:
     """ECharts-based chart renderer. Produces self-contained HTML snippets."""
@@ -176,8 +194,16 @@ class EChartsRenderer:
                 "right": "2%",
                 "top": "center",
                 "inRange": {
-                    "color": ["#0d3b3b", "#1a6b6b", "#4a9e9e", "#a8d5d5",
-                              "#f4e8d0", "#f4a683", "#e8845c", "#b06aed"],
+                    "color": [
+                        "#0d3b3b",
+                        "#1a6b6b",
+                        "#4a9e9e",
+                        "#a8d5d5",
+                        "#f4e8d0",
+                        "#f4a683",
+                        "#e8845c",
+                        "#b06aed",
+                    ],
                 },
             },
             "series": [
@@ -194,10 +220,7 @@ class EChartsRenderer:
 
         option_json = json.dumps(option, ensure_ascii=False)
         # Inject JS formatter function (can't be in JSON)
-        tooltip_fn = (
-            "function(p){return p.name + ' vs ' "
-            "+ p.data[1] + ': ' + p.data[2];}"
-        )
+        tooltip_fn = "function(p){return p.name + ' vs ' + p.data[1] + ': ' + p.data[2];}"
         option_json = option_json.replace('"formatter": null', f'"formatter": {tooltip_fn}')
 
         return (
@@ -244,10 +267,7 @@ class EChartsRenderer:
         weights: list[int | float],
         title: str = "",
     ) -> str:
-        wc_data = [
-            {"name": w, "value": v}
-            for w, v in zip(words, weights, strict=True)
-        ]
+        wc_data = [{"name": w, "value": v} for w, v in zip(words, weights, strict=True)]
         option = {
             "title": {"text": title, "left": "center", "textStyle": {"fontSize": 13}},
             "tooltip": {"trigger": "item", "formatter": "{b}: {c}"},
@@ -288,6 +308,72 @@ class EChartsRenderer:
             f"<script>echarts.init(document.getElementById('{div_id}'))"
             f".setOption({option_json});</script>"
         )
+
+    def line(
+        self,
+        div_id: str,
+        x: list[str],
+        y: list[float],
+        title: str = "",
+    ) -> str:
+        option = {
+            "title": {"text": title, "left": "center", "textStyle": {"fontSize": 13}},
+            "tooltip": {"trigger": "axis"},
+            "grid": {"left": "10%", "right": "5%", "bottom": "15%", "top": "15%"},
+            "xAxis": {"type": "category", "data": x, "axisLabel": {"fontSize": 10}},
+            "yAxis": {"type": "value"},
+            "series": [
+                {
+                    "type": "line",
+                    "data": y,
+                    "showSymbol": False,
+                    "lineStyle": {"color": self.BRAND_CORAL, "width": 1.5},
+                }
+            ],
+        }
+        return self._wrap(div_id, option, self.CHART_HEIGHT)
+
+    def gap_plot(
+        self,
+        div_id: str,
+        labels: list[str],
+        values: list[float],
+        gap_indices: list[int],
+        threshold: float | None = None,
+        title: str = "",
+    ) -> str:
+        gap_points = [{"coord": [labels[i], values[i]], "value": "gap"} for i in gap_indices]
+        series: list[dict] = [
+            {
+                "type": "line",
+                "data": values,
+                "showSymbol": False,
+                "lineStyle": {"color": self.BRAND_TEAL, "width": 1.5},
+                "markPoint": {
+                    "data": gap_points,
+                    "symbol": "circle",
+                    "symbolSize": 8,
+                    "itemStyle": {"color": self.BRAND_CORAL},
+                },
+            }
+        ]
+
+        if threshold is not None:
+            series[0]["markLine"] = {
+                "silent": True,
+                "lineStyle": {"color": self.BRAND_PURPLE, "type": "dashed"},
+                "data": [{"yAxis": round(threshold, 3)}],
+            }
+
+        option = {
+            "title": {"text": title, "left": "center", "textStyle": {"fontSize": 13}},
+            "tooltip": {"trigger": "axis"},
+            "grid": {"left": "10%", "right": "5%", "bottom": "15%", "top": "15%"},
+            "xAxis": {"type": "category", "data": labels, "axisLabel": {"fontSize": 10}},
+            "yAxis": {"type": "value", "name": "interval (s)"},
+            "series": series,
+        }
+        return self._wrap(div_id, option, self.CHART_HEIGHT)
 
     @staticmethod
     def _wrap(div_id: str, option: dict, height: str) -> str:

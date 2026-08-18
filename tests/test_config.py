@@ -35,6 +35,9 @@ class TestProfileConfigDefaults:
         assert cfg.ts_significance == 0.05
         assert cfg.ts_adf_autolag == "AIC"
         assert cfg.ts_adf_maxlag is None
+        assert cfg.ts_adf_max_points == 10_000
+        assert cfg.ts_line_max_points == 5_000
+        assert cfg.ts_pacf_acf_lag == 50
 
 
 class TestProfileConfigCustom:
@@ -113,3 +116,15 @@ class TestProfileConfigValidation:
     def test_invalid_ts_adf_maxlag(self):
         with pytest.raises(ValueError, match="ts_adf_maxlag"):
             ProfileConfig(ts_adf_maxlag=0)
+
+    def test_invalid_ts_adf_max_points(self):
+        with pytest.raises(ValueError, match="ts_adf_max_points"):
+            ProfileConfig(ts_adf_max_points=0)
+
+    def test_invalid_ts_line_max_points(self):
+        with pytest.raises(ValueError, match="ts_line_max_points"):
+            ProfileConfig(ts_line_max_points=0)
+
+    def test_invalid_ts_pacf_acf_lag(self):
+        with pytest.raises(ValueError, match="ts_pacf_acf_lag"):
+            ProfileConfig(ts_pacf_acf_lag=0)

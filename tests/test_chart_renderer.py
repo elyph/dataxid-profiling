@@ -143,6 +143,45 @@ class TestWordCloud:
         assert '<div id="wc_empty"' in html
 
 
+class TestLine:
+    def test_returns_html(self, renderer: EChartsRenderer):
+        html = renderer.line("line_1", ["0", "1", "2"], [1.0, 2.0, 3.0])
+        assert '<div id="line_1"' in html
+        assert "echarts.init" in html
+
+    def test_contains_line_type(self, renderer: EChartsRenderer):
+        html = renderer.line("line", ["0"], [1.0])
+        assert '"line"' in html
+
+    def test_title(self, renderer: EChartsRenderer):
+        html = renderer.line("line", ["0"], [1.0], title="Time Series")
+        assert "Time Series" in html
+
+    def test_show_symbol_false(self, renderer: EChartsRenderer):
+        html = renderer.line("line", ["0"], [1.0])
+        assert "showSymbol" in html
+
+
+class TestGapPlot:
+    def test_returns_html(self, renderer: EChartsRenderer):
+        html = renderer.gap_plot("gap_1", ["0", "1", "2"], [1.0, 5.0, 2.0], [1])
+        assert '<div id="gap_1"' in html
+        assert "echarts.init" in html
+
+    def test_contains_gap_marker(self, renderer: EChartsRenderer):
+        html = renderer.gap_plot("gap", ["0", "1"], [1.0, 5.0], [1])
+        assert "markPoint" in html
+        assert "gap" in html
+
+    def test_threshold_markline(self, renderer: EChartsRenderer):
+        html = renderer.gap_plot("gap", ["0", "1"], [1.0, 5.0], [1], threshold=2.0)
+        assert "markLine" in html
+
+    def test_title(self, renderer: EChartsRenderer):
+        html = renderer.gap_plot("gap", ["0"], [1.0], [], title="Gaps")
+        assert "Gaps" in html
+
+
 class TestEdgeCases:
     def test_empty_data(self, renderer: EChartsRenderer):
         html = renderer.histogram("e1", [], [])

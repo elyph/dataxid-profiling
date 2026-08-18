@@ -155,7 +155,7 @@
                   {{ alert.alert_type }}
                 </span>
               </td>
-              <td class="px-5 py-3 text-gray-600 font-medium">{{ alert.value | format_pct }}</td>
+              <td class="px-5 py-3 text-gray-600 font-medium">{{ alert.alert_type | format_alert_value(alert.value) }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -288,6 +288,15 @@
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Sampling Interval (std)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.sampling_interval_std_seconds }} s</td></tr>
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Regular Interval</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.is_regular_interval }}</td></tr>
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Gaps</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.n_gaps }}</td></tr>
+                  {% if col_data.gap_min_seconds is not none %}
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Min Gap</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.gap_min_seconds }} s</td></tr>
+                  {% endif %}
+                  {% if col_data.gap_mean_seconds is not none %}
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Mean Gap</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.gap_mean_seconds }} s</td></tr>
+                  {% endif %}
+                  {% if col_data.gap_std_seconds is not none %}
+                  <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Std Gap</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.gap_std_seconds }} s</td></tr>
+                  {% endif %}
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Max Gap</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.max_gap_seconds }} s</td></tr>
                   <tr class="stat-row"><td class="py-2 px-3 text-gray-500 rounded-l-lg">Autocorrelation (lag-1)</td><td class="py-2 px-3 text-right font-semibold text-brand-teal rounded-r-lg">{{ col_data.autocorrelation_lag1 }}</td></tr>
                   {% endif %}
@@ -306,10 +315,22 @@
               {% if col_data.chart_html %}
               <div>{{ col_data.chart_html | safe }}</div>
               {% endif %}
+              {% if col_data.ts_chart_html %}
+              <div class="mt-4">{{ col_data.ts_chart_html | safe }}</div>
+              {% endif %}
+              {% if col_data.acf_chart_html %}
+              <div class="mt-4">{{ col_data.acf_chart_html | safe }}</div>
+              {% endif %}
+              {% if col_data.pacf_chart_html %}
+              <div class="mt-4">{{ col_data.pacf_chart_html | safe }}</div>
+              {% endif %}
+              {% if col_data.gap_chart_html %}
+              <div class="mt-4">{{ col_data.gap_chart_html | safe }}</div>
+              {% endif %}
               {% if col_data.wordcloud_html %}
               <div class="mt-4">{{ col_data.wordcloud_html | safe }}</div>
               {% endif %}
-              {% if not col_data.chart_html and not col_data.wordcloud_html %}
+              {% if not col_data.chart_html and not col_data.wordcloud_html and not col_data.ts_chart_html and not col_data.gap_chart_html %}
               <div class="flex items-center justify-center h-full text-gray-300 text-sm italic">No chart available</div>
               {% endif %}
             </div>
@@ -754,7 +775,7 @@
       btn.classList.add('active');
       var panel = document.getElementById('panel-' + idx);
       if (panel) panel.classList.add('active');
-      panel.querySelectorAll('[id^="col_chart_"],[id^="col_wc_"]').forEach(function(el) {
+      panel.querySelectorAll('[id^="col_chart_"],[id^="col_wc_"],[id^="col_ts_"],[id^="col_acf_"],[id^="col_pacf_"],[id^="col_gap_"]').forEach(function(el) {
         var chart = echarts.getInstanceByDom(el);
         if (chart) chart.resize();
       });

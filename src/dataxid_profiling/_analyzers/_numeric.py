@@ -62,6 +62,8 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
 
     is_ts = _detect_timeseries(df, col_name, config)
     adf_pvalue, is_stationary = _adf_stationarity(df, col_name, config) if is_ts else (None, False)
+    line_data = _extract_line_data(df, col_name, config.ts_line_max_points) if is_ts else []
+    acf_values, pacf_values = _compute_acf_pacf(df, col_name, config) if is_ts else ([], [])
 
     return NumericStats(
         column_name=col_name,
@@ -100,6 +102,9 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
         is_timeseries=is_ts,
         adf_pvalue=adf_pvalue,
         is_stationary=is_stationary,
+        line_data=line_data,
+        acf_values=acf_values,
+        pacf_values=pacf_values,
     )
 
 
@@ -190,6 +195,12 @@ def _adf_stationarity(
     if n < 5:
         return None, False
 
+    if config.ts_adf_max_points is not None and n > config.ts_adf_max_points:
+        step = n / config.ts_adf_max_points
+        idxs = [int(i * step) for i in range(config.ts_adf_max_points)]
+        vals = vals.gather(idxs)
+        n = vals.len()
+
     try:
         from statsmodels.tsa.stattools import adfuller
 
@@ -203,6 +214,45 @@ def _adf_stationarity(
         return None, False
 
     return p_value, p_value < config.ts_significance
+
+
+def _extract_line_data(df: pl.DataFrame, col_name: str, max_points: int) -> list[float]:
+    """Uniform-sample numeric series for a lightweight line plot."""
+    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    n = vals.len()
+    if n == 0:
+        return []
+    if n <= max_points:
+        return [round(v, 4) for v in vals.to_list()]
+    step = n / max_points
+    idxs = [int(i * step) for i in range(max_points)]
+    sampled = vals.gather(idxs)
+    return [round(v, 4) for v in sampled.to_list()]
+
+
+def _compute_acf_pacf(
+    df: pl.DataFrame, col_name: str, config: ProfileConfig
+) -> tuple[list[float], list[float]]:
+    """Compute ACF and PACF via statsmodels for a time-series column."""
+    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    n = vals.len()
+    nlags = min(config.ts_pacf_acf_lag, n - 2)
+    if nlags < 1:
+        return [], []
+
+    try:
+        from statsmodels.tsa.stattools import acf, pacf
+
+        x = vals.to_numpy()
+        acf_vals = acf(x, nlags=nlags, fft=True)
+        pacf_vals = pacf(x, nlags=nlags, method="ywm")
+    except Exception:
+        return [], []
+
+    return (
+        [round(float(v), 4) for v in acf_vals],
+        [round(float(v), 4) for v in pacf_vals],
+    )
 
 
 def _safe_float(val: Any) -> float | None:

@@ -293,3 +293,36 @@ class TestNumericTimeSeries:
         if stats.is_timeseries:
             assert stats.adf_pvalue is not None
             assert stats.is_stationary is True
+
+    def test_adf_sampling_caps_points(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(50_000)]})
+        config = ProfileConfig(ts_adf_max_points=1_000)
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.adf_pvalue is not None
+        assert 0.0 <= stats.adf_pvalue <= 1.0
+
+    def test_line_data_caps_points(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(50_000)]})
+        config = ProfileConfig(ts_line_max_points=100)
+        stats = analyze_numeric(df, "val", config)
+        assert len(stats.line_data) == 100
+
+    def test_line_data_empty_for_non_ts(self, config: ProfileConfig):
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.line_data == []
+
+    def test_acf_pacf_values_present_for_ts(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert len(stats.acf_values) > 0
+        assert len(stats.pacf_values) > 0
+        assert len(stats.acf_values) == len(stats.pacf_values)
+
+    def test_acf_pacf_empty_for_short_series(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [1.0, 2.0]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.acf_values == []
+        assert stats.pacf_values == []

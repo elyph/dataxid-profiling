@@ -16,6 +16,7 @@ from dataxid_profiling._analyzers import (
     BooleanStats,
     CategoricalStats,
     ColumnStats,
+    DatetimeStats,
     NumericStats,
 )
 from dataxid_profiling._correlations import CorrelationResult  # noqa: TC001
@@ -87,6 +88,7 @@ def _build_env() -> Environment:
     env.filters["format_number"] = _format_number
     env.filters["format_pct"] = _format_pct
     env.filters["format_float"] = _format_float
+    env.filters["format_alert_value"] = _format_alert_value
     return env
 
 
@@ -120,6 +122,32 @@ def _format_float(value: Any) -> str:
         return str(value)
 
 
+def _format_alert_value(alert_type: str, value: Any) -> str:
+    """Format an alert value based on its type.
+
+    Percentage-based alerts keep the percent format; time-series and count
+    alerts are rendered as plain numbers so a second value is not shown as a
+    misleading percentage.
+    """
+    if value is None:
+        return "—"
+
+    raw_alerts = {
+        "UNSORTED_DATES",
+        "IRREGULAR_INTERVALS",
+        "LARGE_GAPS",
+        "NON_STATIONARY",
+        "CONSTANT",
+    }
+    if alert_type in raw_alerts:
+        try:
+            return f"{float(value):,.3f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    return _format_pct(value)
+
+
 def _prepare_columns(
     column_stats: dict[str, ColumnStats],
     renderer: ChartRenderer,
@@ -130,6 +158,11 @@ def _prepare_columns(
         col_dict["column_type"] = stats.column_type.name
         col_dict["chart_html"] = _chart_for_column(stats, renderer, idx)
         col_dict["wordcloud_html"] = _wordcloud_for_column(stats, renderer, idx)
+        col_dict["ts_chart_html"] = _ts_chart_for_column(stats, renderer, idx)
+        col_dict["acf_chart_html"], col_dict["pacf_chart_html"] = _acf_pacf_charts_for_column(
+            stats, renderer, idx
+        )
+        col_dict["gap_chart_html"] = _gap_chart_for_column(stats, renderer, idx)
         columns[col_name] = col_dict
     return columns
 
@@ -167,6 +200,38 @@ def _chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> 
     return ""
 
 
+def _ts_chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> str:
+    if not isinstance(stats, NumericStats) or not stats.is_timeseries or not stats.line_data:
+        return ""
+    x = [str(i) for i in range(len(stats.line_data))]
+    return renderer.line(f"col_ts_{idx}", x, stats.line_data, title="Time Series")
+
+
+def _acf_pacf_charts_for_column(
+    stats: ColumnStats, renderer: ChartRenderer, idx: int
+) -> tuple[str, str]:
+    if not isinstance(stats, NumericStats) or not stats.acf_values:
+        return "", ""
+    labels = [str(i) for i in range(len(stats.acf_values))]
+    acf_chart = renderer.histogram(f"col_acf_{idx}", labels, stats.acf_values, title="ACF")
+    pacf_chart = renderer.histogram(f"col_pacf_{idx}", labels, stats.pacf_values, title="PACF")
+    return acf_chart, pacf_chart
+
+
+def _gap_chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> str:
+    if not isinstance(stats, DatetimeStats) or not stats.interval_values:
+        return ""
+    labels = [str(i) for i in range(len(stats.interval_values))]
+    return renderer.gap_plot(
+        f"col_gap_{idx}",
+        labels,
+        stats.interval_values,
+        stats.gap_indices,
+        threshold=stats.gap_threshold_seconds,
+        title="Sampling Intervals & Gaps",
+    )
+
+
 def _wordcloud_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> str:
     if not isinstance(stats, CategoricalStats) or not stats.top_values:
         return ""
@@ -182,9 +247,7 @@ def _prepare_missing_bar_chart(
     missing = overview.missing_per_column
     if not missing:
         return ""
-    cols_with_missing = {
-        col: info for col, info in missing.items() if info["count"] > 0
-    }
+    cols_with_missing = {col: info for col, info in missing.items() if info["count"] > 0}
     if not cols_with_missing:
         return ""
     labels = list(cols_with_missing.keys())
@@ -192,7 +255,6 @@ def _prepare_missing_bar_chart(
     return renderer.bar_horizontal(
         "missing_bar", labels, values, title="Missing Values per Column"
     )
-
 
 
 _SYMMETRIC_RANGE: dict[str, tuple[float, float]] = {
@@ -222,7 +284,12 @@ def _prepare_correlation_charts(
         title_str = f"{display_name} Correlation"
         vrange = _SYMMETRIC_RANGE.get(method)
         chart_html = renderer.heatmap(
-            div_id, labels, labels, data, title=title_str, value_range=vrange,
+            div_id,
+            labels,
+            labels,
+            data,
+            title=title_str,
+            value_range=vrange,
         )
         charts.append({"name": display_name, "div_id": div_id, "chart_html": chart_html})
     return charts
@@ -239,18 +306,18 @@ def _prepare_interactions(
     for cat_col, num_map in interactions.boxplot_stats.items():
         boxplot_serialized[cat_col] = {}
         for num_col, groups in num_map.items():
-            boxplot_serialized[cat_col][num_col] = [
-                asdict(g) for g in groups
-            ]
+            boxplot_serialized[cat_col][num_col] = [asdict(g) for g in groups]
 
     return {
         "numeric_columns": interactions.numeric_columns,
         "categorical_columns": interactions.categorical_columns,
         "numeric_data_json": json.dumps(
-            interactions.numeric_data, ensure_ascii=False,
+            interactions.numeric_data,
+            ensure_ascii=False,
         ),
         "boxplot_stats_json": json.dumps(
-            boxplot_serialized, ensure_ascii=False,
+            boxplot_serialized,
+            ensure_ascii=False,
         ),
         "sampled": interactions.sampled,
         "total_rows": interactions.total_rows,

@@ -308,6 +308,67 @@ class TestRenderTimeSeries:
         html = _render(df)
         assert "ADF p-value" not in html
 
+    def test_ts_line_plot_present(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert 'id="col_ts_0"' in html
+        assert "Time Series" in html
+
+    def test_ts_line_plot_absent_when_not_ts(self):
+        import random
+
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        html = _render(df)
+        assert 'id="col_ts_0"' not in html
+
+    def test_acf_pacf_plots_present(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert 'id="col_acf_0"' in html
+        assert 'id="col_pacf_0"' in html
+        assert "ACF" in html
+        assert "PACF" in html
+
+    def test_gap_plot_present_for_datetime(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame(
+            {
+                "ts": [
+                    base + timedelta(hours=0),
+                    base + timedelta(hours=1),
+                    base + timedelta(hours=2),
+                    base + timedelta(days=5),
+                    base + timedelta(days=5, hours=1),
+                    base + timedelta(days=5, hours=2),
+                ]
+            }
+        )
+        html = _render(df)
+        assert "col_gap_" in html
+
+    def test_gap_stats_rows_present_for_datetime(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame(
+            {
+                "ts": [
+                    base + timedelta(hours=0),
+                    base + timedelta(hours=1),
+                    base + timedelta(hours=2),
+                    base + timedelta(days=5),
+                    base + timedelta(days=5, hours=1),
+                    base + timedelta(days=5, hours=2),
+                ]
+            }
+        )
+        html = _render(df)
+        assert "Min Gap" in html
+        assert "Mean Gap" in html
+
 
 class TestRenderReproduction:
     def test_reproduction_section(self, mixed_df: pl.DataFrame):
@@ -338,3 +399,15 @@ class TestFilters:
     def test_format_pct(self, mixed_df: pl.DataFrame):
         html = _render(mixed_df)
         assert "%" in html
+
+    def test_format_alert_value_raw_for_timeseries(self):
+        from dataxid_profiling._report._html import _format_alert_value
+
+        assert _format_alert_value("IRREGULAR_INTERVALS", 70192.8) == "70,192.800"
+        assert _format_alert_value("UNSORTED_DATES", 1.0) == "1.000"
+        assert _format_alert_value("LARGE_GAPS", 2) == "2.000"
+
+    def test_format_alert_value_pct_for_missing(self):
+        from dataxid_profiling._report._html import _format_alert_value
+
+        assert _format_alert_value("HIGH_MISSING", 0.25) == "25.0%"

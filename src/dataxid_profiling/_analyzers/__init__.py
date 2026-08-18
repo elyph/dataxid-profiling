@@ -63,6 +63,9 @@ class NumericStats(BaseStats):
     is_timeseries: bool = False
     adf_pvalue: float | None = None
     is_stationary: bool = False
+    line_data: list[float] = field(default_factory=list)
+    acf_values: list[float] = field(default_factory=list)
+    pacf_values: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,12 @@ class DatetimeStats(BaseStats):
     n_gaps: int = 0
     max_gap_seconds: float | None = None
     autocorrelation_lag1: float | None = None
+    gap_min_seconds: float | None = None
+    gap_mean_seconds: float | None = None
+    gap_std_seconds: float | None = None
+    gap_threshold_seconds: float | None = None
+    gap_indices: list[int] = field(default_factory=list)
+    interval_values: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
