@@ -37,6 +37,7 @@ def render_html(
     correlations: dict[str, CorrelationResult],
     interactions: InteractionData | None = None,
     chart_renderer: ChartRenderer | None = None,
+    time_index: dict[str, Any] | None = None,
 ) -> str:
     renderer = chart_renderer or EChartsRenderer()
     env = _build_env()
@@ -45,6 +46,7 @@ def render_html(
     columns = _prepare_columns(column_stats, renderer)
     correlation_charts = _prepare_correlation_charts(correlations, renderer)
     missing_bar_chart = _prepare_missing_bar_chart(overview, renderer)
+    time_index_html = _prepare_time_index_charts(time_index, renderer)
     interactions_payload = _prepare_interactions(interactions)
     alert_dicts = [
         {
@@ -68,6 +70,8 @@ def render_html(
         correlation_charts=correlation_charts,
         interactions=interactions_payload,
         missing_bar_chart=missing_bar_chart,
+        time_index=time_index,
+        time_index_html=time_index_html,
         logo_b64=_load_asset_b64("dataxid_logo.png"),
         icon_b64=_load_asset_b64("icon.png"),
     )
@@ -137,6 +141,7 @@ def _format_alert_value(alert_type: str, value: Any) -> str:
         "IRREGULAR_INTERVALS",
         "LARGE_GAPS",
         "NON_STATIONARY",
+        "SEASONAL",
         "CONSTANT",
     }
     if alert_type in raw_alerts:
@@ -238,6 +243,36 @@ def _wordcloud_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int)
     words = [str(tv["value"]) for tv in stats.top_values]
     weights = [tv["count"] for tv in stats.top_values]
     return renderer.word_cloud(f"col_wc_{idx}", words, weights, title="Word Cloud")
+
+
+def _prepare_time_index_charts(
+    time_index: dict[str, Any] | None,
+    renderer: ChartRenderer,
+) -> dict[str, str]:
+    if not time_index:
+        return {"original": "", "scaled": ""}
+
+    names = time_index.get("series_names", [])
+    x = time_index.get("x", [])
+    original = time_index.get("original", {})
+    scaled = time_index.get("scaled", {})
+
+    return {
+        "original": renderer.multi_line(
+            "ts_overview_original",
+            names,
+            x,
+            original,
+            title="Time Series Overview — Original",
+        ),
+        "scaled": renderer.multi_line(
+            "ts_overview_scaled",
+            names,
+            x,
+            scaled,
+            title="Time Series Overview — Scaled",
+        ),
+    }
 
 
 def _prepare_missing_bar_chart(

@@ -173,38 +173,46 @@ class TestProfileReportCorrelations:
         assert report.correlations == {}
 
     def test_cramers_v_with_categoricals(self):
-        df = pl.DataFrame({
-            "a": ["x", "y", "z"] * 10,
-            "b": ["p", "q", "r"] * 10,
-        })
+        df = pl.DataFrame(
+            {
+                "a": ["x", "y", "z"] * 10,
+                "b": ["p", "q", "r"] * 10,
+            }
+        )
         report = ProfileReport(df)
         assert "cramers_v" in report.correlations
 
     def test_cramers_v_in_to_dict(self):
-        df = pl.DataFrame({
-            "a": ["x", "y", "z"] * 10,
-            "b": ["p", "q", "r"] * 10,
-        })
+        df = pl.DataFrame(
+            {
+                "a": ["x", "y", "z"] * 10,
+                "b": ["p", "q", "r"] * 10,
+            }
+        )
         report = ProfileReport(df)
         d = report.to_dict()
         assert "cramers_v" in d["correlations"]
         assert "matrix" in d["correlations"]["cramers_v"]
 
     def test_phik_with_mixed_columns(self):
-        df = pl.DataFrame({
-            "n1": list(range(20)),
-            "n2": list(range(20, 40)),
-            "c1": ["a", "b"] * 10,
-            "c2": ["x", "y"] * 10,
-        })
+        df = pl.DataFrame(
+            {
+                "n1": list(range(20)),
+                "n2": list(range(20, 40)),
+                "c1": ["a", "b"] * 10,
+                "c2": ["x", "y"] * 10,
+            }
+        )
         report = ProfileReport(df)
         assert "phik" in report.correlations
 
     def test_phik_in_to_dict(self):
-        df = pl.DataFrame({
-            "n1": list(range(20)),
-            "c1": ["a", "b"] * 10,
-        })
+        df = pl.DataFrame(
+            {
+                "n1": list(range(20)),
+                "c1": ["a", "b"] * 10,
+            }
+        )
         report = ProfileReport(df)
         d = report.to_dict()
         assert "phik" in d["correlations"]
@@ -215,6 +223,39 @@ class TestProfileReportCorrelations:
         report = ProfileReport(df)
         assert "pearson" not in report.correlations
         assert "cramers_v" not in report.correlations
+
+
+class TestProfileReportTimeIndex:
+    def test_time_index_property_for_ts(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        report = ProfileReport(df)
+        assert report.time_index is not None
+        assert report.time_index["n_series"] >= 1
+
+    def test_time_index_none_for_clean(self):
+        import random
+
+        rng = random.Random(42)
+        df = pl.DataFrame({"a": [rng.random() for _ in range(50)]})
+        report = ProfileReport(df)
+        assert report.time_index is None
+
+    def test_to_dict_has_time_index_analysis(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        report = ProfileReport(df)
+        d = report.to_dict()
+        assert "time_index_analysis" in d
+        assert d["time_index_analysis"] is not None
+
+    def test_to_html_contains_time_index_overview(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        report = ProfileReport(df)
+        html = report.to_html()
+        assert "Time Series Overview" in html
 
 
 class TestProfileReportToHtml:

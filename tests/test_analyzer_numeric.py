@@ -334,3 +334,45 @@ class TestNumericTimeSeries:
         assert stats.is_timeseries is True
         assert len(stats.acf_values) > 0
         assert len(stats.pacf_values) > 0
+
+
+class TestNumericSeasonality:
+    def test_sine_is_seasonal(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.is_seasonal is True
+        assert len(stats.seasonal_periods) > 0
+        assert any(p == pytest.approx(7, abs=0.5) for p in stats.seasonal_periods)
+
+    def test_white_noise_not_seasonal(self, config: ProfileConfig):
+        rng = random.Random(7)
+        df = pl.DataFrame({"val": [rng.gauss(0, 1) for _ in range(500)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_linear_trend_not_seasonal(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_short_series_not_seasonal(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(15)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_ts_active_false_not_seasonal(self):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        config = ProfileConfig(ts_active=False)
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_seasonal_periods_non_empty_when_seasonal(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        if stats.is_seasonal:
+            assert len(stats.seasonal_periods) > 0

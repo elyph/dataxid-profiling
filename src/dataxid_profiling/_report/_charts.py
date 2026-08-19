@@ -78,6 +78,15 @@ class ChartRenderer(Protocol):
         title: str = "",
     ) -> str: ...
 
+    def multi_line(
+        self,
+        div_id: str,
+        series_names: list[str],
+        x: list[str],
+        series_data: dict[str, list[float]],
+        title: str = "",
+    ) -> str: ...
+
 
 class EChartsRenderer:
     """ECharts-based chart renderer. Produces self-contained HTML snippets."""
@@ -371,6 +380,38 @@ class EChartsRenderer:
             "grid": {"left": "10%", "right": "5%", "bottom": "15%", "top": "15%"},
             "xAxis": {"type": "category", "data": labels, "axisLabel": {"fontSize": 10}},
             "yAxis": {"type": "value", "name": "interval (s)"},
+            "series": series,
+        }
+        return self._wrap(div_id, option, self.CHART_HEIGHT)
+
+    def multi_line(
+        self,
+        div_id: str,
+        series_names: list[str],
+        x: list[str],
+        series_data: dict[str, list[float]],
+        title: str = "",
+    ) -> str:
+        palette = [self.BRAND_TEAL, self.BRAND_CORAL, self.BRAND_PURPLE, self.BRAND_PEACH]
+        series = []
+        for idx, name in enumerate(series_names):
+            series.append(
+                {
+                    "name": name,
+                    "type": "line",
+                    "data": series_data.get(name, []),
+                    "showSymbol": False,
+                    "lineStyle": {"width": 1.5, "color": palette[idx % len(palette)]},
+                }
+            )
+
+        option = {
+            "title": {"text": title, "left": "center", "textStyle": {"fontSize": 13}},
+            "tooltip": {"trigger": "axis"},
+            "legend": {"orient": "horizontal", "bottom": "0%", "left": "center"},
+            "grid": {"left": "10%", "right": "5%", "bottom": "18%", "top": "15%"},
+            "xAxis": {"type": "category", "data": x, "axisLabel": {"fontSize": 10}},
+            "yAxis": {"type": "value"},
             "series": series,
         }
         return self._wrap(div_id, option, self.CHART_HEIGHT)

@@ -66,6 +66,8 @@ class NumericStats(BaseStats):
     line_data: list[float] = field(default_factory=list)
     acf_values: list[float] = field(default_factory=list)
     pacf_values: list[float] = field(default_factory=list)
+    is_seasonal: bool = False
+    seasonal_periods: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

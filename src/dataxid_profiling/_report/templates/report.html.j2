@@ -111,6 +111,38 @@
       </div>
     </section>
 
+    {# ── Time Series Overview ── #}
+    {% if time_index %}
+    <section>
+      <h2 class="text-lg font-semibold text-brand-teal mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Time Series Overview
+      </h2>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 p-6 border-b border-gray-100">
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Series</div>
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Length</div>
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Start</div>
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">End</div>
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Period (s)</div>
+          <div class="text-2xl font-bold text-brand-teal">{{ time_index.n_series }}</div>
+          <div class="text-2xl font-bold text-brand-teal">{{ time_index.length | format_number }}</div>
+          <div class="text-sm font-semibold text-brand-teal">{{ time_index.start or "—" }}</div>
+          <div class="text-sm font-semibold text-brand-teal">{{ time_index.end or "—" }}</div>
+          <div class="text-sm font-semibold text-brand-teal">{{ time_index.period if time_index.period is not none else "—" }}</div>
+        </div>
+        {% if time_index.series_names %}
+        <div class="flex gap-2 px-6 pt-4" id="ts-overview-tabs">
+          <button class="tab-btn active px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600" onclick="switchTsOverviewTab('original', this)">Original</button>
+          <button class="tab-btn px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-600" onclick="switchTsOverviewTab('scaled', this)">Scaled</button>
+        </div>
+        <div id="ts-overview-original" class="p-6">{{ time_index_html.original | safe }}</div>
+        <div id="ts-overview-scaled" class="p-6" style="display:none">{{ time_index_html.scaled | safe }}</div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
     {# ── Alerts ── #}
     {% if alerts %}
     <section>
@@ -247,6 +279,9 @@
                   <tr class="stat-row"><th colspan="2" class="py-2 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50">Time Series</th></tr>
                   <tr class="stat-row"><td class="{{ s }} {{ l }}">ADF p-value</td><td class="{{ s }} {{ r }}">{{ col_data.adf_pvalue | format_float }}</td></tr>
                   <tr class="stat-row"><td class="{{ s }} {{ l }}">Stationary</td><td class="{{ s }} {{ r }}">{{ col_data.is_stationary }}</td></tr>
+                  {% if col_data.is_seasonal %}
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">Seasonal Periods</td><td class="{{ s }} {{ r }}">{{ col_data.seasonal_periods }}</td></tr>
+                  {% endif %}
                   {% endif %}
                   {% endif %}
 
@@ -779,6 +814,18 @@
         var chart = echarts.getInstanceByDom(el);
         if (chart) chart.resize();
       });
+    }
+    function switchTsOverviewTab(which, btn) {
+      btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('ts-overview-original').style.display = which === 'original' ? 'block' : 'none';
+      document.getElementById('ts-overview-scaled').style.display = which === 'scaled' ? 'block' : 'none';
+      var target = document.getElementById('ts-overview-' + which);
+      var chart = target.querySelector('[id^="ts_overview_"]');
+      if (chart) {
+        var instance = echarts.getInstanceByDom(chart);
+        if (instance) instance.resize();
+      }
     }
     function switchCorrTab(divId, btn) {
       document.querySelectorAll('#corr-tabs .tab-btn').forEach(b => b.classList.remove('active'));

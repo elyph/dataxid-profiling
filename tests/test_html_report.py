@@ -6,7 +6,7 @@ from dataxid_profiling._alerts import check_quality
 from dataxid_profiling._analyzers import analyze
 from dataxid_profiling._config import ProfileConfig
 from dataxid_profiling._correlations import compute_correlations
-from dataxid_profiling._dataset_overview import compute_overview
+from dataxid_profiling._dataset_overview import compute_overview, compute_time_index
 from dataxid_profiling._report._html import render_html
 from dataxid_profiling._type_inference import infer_types
 
@@ -18,6 +18,7 @@ def _render(df: pl.DataFrame, config: ProfileConfig | None = None) -> str:
     overview = compute_overview(df, column_types, config)
     alerts = check_quality(column_stats, overview, config)
     correlations = compute_correlations(df, column_types, config)
+    time_index = compute_time_index(df, column_types, column_stats, config)
     return render_html(
         title=config.title,
         version="0.1.0",
@@ -25,6 +26,7 @@ def _render(df: pl.DataFrame, config: ProfileConfig | None = None) -> str:
         column_stats=column_stats,
         alerts=alerts,
         correlations=correlations,
+        time_index=time_index,
     )
 
 
@@ -368,6 +370,50 @@ class TestRenderTimeSeries:
         html = _render(df)
         assert "Min Gap" in html
         assert "Mean Gap" in html
+
+    def test_seasonal_periods_row_present(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        html = _render(df)
+        assert "Seasonal Periods" in html
+
+    def test_seasonal_periods_row_absent_when_not_seasonal(self):
+        import random
+
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        html = _render(df)
+        assert "Seasonal Periods" not in html
+
+
+class TestRenderTimeIndexOverview:
+    def test_datetime_overview_present(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame({"ts": [base + timedelta(hours=i) for i in range(20)]})
+        html = _render(df)
+        assert "Time Series Overview" in html
+
+    def test_numeric_ts_overview_present(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert "Time Series Overview" in html
+
+    def test_overview_absent_when_no_ts(self):
+        import random
+
+        rng = random.Random(42)
+        df = pl.DataFrame({"a": [rng.random() for _ in range(50)]})
+        html = _render(df)
+        assert "Time Series Overview" not in html
+
+    def test_scaled_tab_present(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert "Scaled" in html
+        assert 'id="ts-overview-scaled"' in html
 
 
 class TestRenderReproduction:

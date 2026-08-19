@@ -12,7 +12,11 @@ from dataxid_profiling._alerts import Alert, AlertType, check_quality
 from dataxid_profiling._analyzers import ColumnStats, analyze
 from dataxid_profiling._config import ProfileConfig
 from dataxid_profiling._correlations import CorrelationResult, compute_correlations
-from dataxid_profiling._dataset_overview import DatasetOverview, compute_overview
+from dataxid_profiling._dataset_overview import (
+    DatasetOverview,
+    compute_overview,
+    compute_time_index,
+)
 from dataxid_profiling._ingest import ingest
 from dataxid_profiling._interactions import InteractionData, compute_interactions
 from dataxid_profiling._report._html import render_html
@@ -57,6 +61,9 @@ class ProfileReport:
         self._overview: DatasetOverview = compute_overview(
             self._df, self._column_types, self._config
         )
+        self._time_index: dict[str, Any] | None = compute_time_index(
+            self._df, self._column_types, self._column_stats, self._config
+        )
         self._correlations: dict[str, CorrelationResult] = compute_correlations(
             self._df, self._column_types, self._config
         )
@@ -82,6 +89,10 @@ class ProfileReport:
     @property
     def overview(self) -> dict[str, Any]:
         return asdict(self._overview)
+
+    @property
+    def time_index(self) -> dict[str, Any] | None:
+        return self._time_index
 
     @property
     def alerts(self) -> list[Alert]:
@@ -122,6 +133,7 @@ class ProfileReport:
             ],
             "correlations": corr_dict,
             "interactions": self._serialize_interactions(),
+            "time_index_analysis": self._time_index,
         }
 
     def _serialize_interactions(self) -> dict[str, Any] | None:
@@ -151,6 +163,7 @@ class ProfileReport:
             alerts=self._alerts,
             correlations=self._correlations,
             interactions=self._interactions,
+            time_index=self._time_index,
         )
         if path is not None:
             from pathlib import Path as P

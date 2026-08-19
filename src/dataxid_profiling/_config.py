@@ -49,6 +49,7 @@ class ProfileConfig:
     ts_acf_pacf_max_points: int | None = 10_000
     ts_line_max_points: int = 5_000
     ts_pacf_acf_lag: int = 50
+    ts_seasonality_power_threshold: float = 0.1
 
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
     mode: Literal["complete", "overview"] = "complete"
@@ -123,4 +124,10 @@ class ProfileConfig:
             raise ValueError(msg)
         if self.ts_pacf_acf_lag < 1:
             msg = f"ts_pacf_acf_lag must be >= 1, got {self.ts_pacf_acf_lag}"
+            raise ValueError(msg)
+        if not 0.0 < self.ts_seasonality_power_threshold <= 1.0:
+            msg = (
+                "ts_seasonality_power_threshold must be in (0, 1], "
+                f"got {self.ts_seasonality_power_threshold}"
+            )
             raise ValueError(msg)

@@ -64,6 +64,9 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
     adf_pvalue, is_stationary = _adf_stationarity(df, col_name, config) if is_ts else (None, False)
     line_data = _extract_line_data(df, col_name, config.ts_line_max_points) if is_ts else []
     acf_values, pacf_values = _compute_acf_pacf(df, col_name, config) if is_ts else ([], [])
+    is_seasonal, seasonal_periods = (
+        _detect_seasonality(df, col_name, config) if is_ts else (False, [])
+    )
 
     return NumericStats(
         column_name=col_name,
@@ -105,6 +108,8 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
         line_data=line_data,
         acf_values=acf_values,
         pacf_values=pacf_values,
+        is_seasonal=is_seasonal,
+        seasonal_periods=seasonal_periods,
     )
 
 
@@ -262,6 +267,50 @@ def _compute_acf_pacf(
         [round(float(v), 4) for v in acf_vals],
         [round(float(v), 4) for v in pacf_vals],
     )
+
+
+def _detect_seasonality(
+    df: pl.DataFrame, col_name: str, config: ProfileConfig
+) -> tuple[bool, list[float]]:
+    """Detect periodic seasonality via FFT power-spectrum peak detection."""
+    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    n = vals.len()
+    if n < 16:
+        return False, []
+
+    try:
+        import numpy as np
+        from scipy.signal import detrend, find_peaks
+
+        x = detrend(vals.to_numpy())
+
+        data_fft = np.fft.fft(x)
+        psd = np.abs(data_fft) ** 2
+        freqs = np.fft.fftfreq(n)
+
+        pos = (freqs > 0) & (freqs > (2.0 / n))
+        freq = freqs[pos]
+        psd_pos = psd[pos]
+        total_power = float(psd_pos.sum())
+        # Detrended flat signals (e.g. a pure linear trend) leave only a
+        # near-zero numerical residue; treat them as non-seasonal instead of
+        # letting that residue dominate the power ratio.
+        if total_power <= 1e-8:
+            return False, []
+
+        peak_indices, _ = find_peaks(psd_pos)
+        if len(peak_indices) == 0:
+            return False, []
+
+        peak_indices = peak_indices[np.argsort(psd_pos[peak_indices])[::-1]]
+        dominant = psd_pos[peak_indices[0]] / total_power
+        if dominant < config.ts_seasonality_power_threshold:
+            return False, []
+
+        periods = [round(float(1.0 / freq[i]), 2) for i in peak_indices[:3]]
+        return True, periods
+    except Exception:
+        return False, []
 
 
 def _safe_float(val: Any) -> float | None:

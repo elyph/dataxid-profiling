@@ -36,6 +36,7 @@ class AlertType(Enum):
     IRREGULAR_INTERVALS = auto()
     LARGE_GAPS = auto()
     NON_STATIONARY = auto()
+    SEASONAL = auto()
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,16 @@ def _check_numeric(
                 alert_type=AlertType.NON_STATIONARY,
                 value=stats.adf_pvalue,
                 details={"adf_pvalue": stats.adf_pvalue},
+            )
+        )
+
+    if stats.is_timeseries and stats.is_seasonal:
+        alerts.append(
+            Alert(
+                column=col_name,
+                alert_type=AlertType.SEASONAL,
+                value=1.0,
+                details={"seasonal_periods": stats.seasonal_periods},
             )
         )
 

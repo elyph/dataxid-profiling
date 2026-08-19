@@ -162,6 +162,29 @@ class TestLine:
         assert "showSymbol" in html
 
 
+class TestMultiLine:
+    def test_returns_html(self, renderer: EChartsRenderer):
+        html = renderer.multi_line("ml_1", ["a", "b"], ["0", "1"], {"a": [1.0], "b": [2.0]})
+        assert '<div id="ml_1"' in html
+        assert "echarts.init" in html
+
+    def test_contains_line_type(self, renderer: EChartsRenderer):
+        html = renderer.multi_line("ml", ["a"], ["0"], {"a": [1.0]})
+        assert '"line"' in html
+
+    def test_contains_series_names(self, renderer: EChartsRenderer):
+        html = renderer.multi_line("ml", ["series_x"], ["0"], {"series_x": [1.0]})
+        assert "series_x" in html
+
+    def test_contains_legend(self, renderer: EChartsRenderer):
+        html = renderer.multi_line("ml", ["a"], ["0"], {"a": [1.0]})
+        assert '"legend"' in html
+
+    def test_title(self, renderer: EChartsRenderer):
+        html = renderer.multi_line("ml", ["a"], ["0"], {"a": [1.0]}, title="Overview")
+        assert "Overview" in html
+
+
 class TestGapPlot:
     def test_returns_html(self, renderer: EChartsRenderer):
         html = renderer.gap_plot("gap_1", ["0", "1", "2"], [1.0, 5.0, 2.0], [1])

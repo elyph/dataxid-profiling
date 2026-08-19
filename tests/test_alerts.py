@@ -365,3 +365,35 @@ class TestTimeSeriesAlerts:
         alerts = _get_alerts(df, ProfileConfig(ts_active=False))
         col_alerts = _alerts_for_column(alerts, "val")
         assert not any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)
+
+    def test_sine_seasonal_alert(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        seasonal = [a for a in col_alerts if a.alert_type == AlertType.SEASONAL]
+        assert len(seasonal) == 1
+        assert seasonal[0].details["seasonal_periods"]
+
+    def test_white_noise_no_seasonal_alert(self):
+        rng = random.Random(7)
+        df = pl.DataFrame({"val": [rng.gauss(0, 1) for _ in range(500)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert not any(a.alert_type == AlertType.SEASONAL for a in col_alerts)
+
+    def test_linear_trend_no_seasonal_alert(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert any(a.alert_type == AlertType.NON_STATIONARY for a in col_alerts)
+        assert not any(a.alert_type == AlertType.SEASONAL for a in col_alerts)
+
+    def test_ts_active_false_no_seasonal_alert(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        alerts = _get_alerts(df, ProfileConfig(ts_active=False))
+        col_alerts = _alerts_for_column(alerts, "val")
+        assert not any(a.alert_type == AlertType.SEASONAL for a in col_alerts)

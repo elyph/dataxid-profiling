@@ -6,9 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from dataxid_profiling._analyzers import DatetimeStats, NumericStats  # noqa: TC001
 from dataxid_profiling._type_inference import ColumnType  # noqa: TC001 — used at runtime
 
 if TYPE_CHECKING:
+    from dataxid_profiling._analyzers import ColumnStats
     from dataxid_profiling._config import ProfileConfig
 
 _SAMPLE_SIZE = 10
@@ -80,15 +82,87 @@ def compute_overview(
     )
 
 
+def compute_time_index(
+    df: pl.DataFrame,
+    column_types: dict[str, ColumnType],
+    column_stats: dict[str, ColumnStats],
+    config: ProfileConfig | None = None,  # noqa: ARG001 — reserved for future thresholds
+) -> dict[str, Any] | None:
+    """Build a dataset-level time-series overview for the report.
+
+    Kept separate from compute_overview to avoid changing that function's
+    signature; it is calculated once in ProfileReport after column stats exist.
+    """
+    datetime_cols = [c for c, t in column_types.items() if t is ColumnType.DATETIME]
+    ts_numeric_cols = [
+        name for name, s in column_stats.items() if isinstance(s, NumericStats) and s.is_timeseries
+    ]
+
+    if not datetime_cols and not ts_numeric_cols:
+        return None
+
+    length = df.height
+    start: str | None = None
+    end: str | None = None
+    period: float | None = None
+
+    if datetime_cols:
+        first_dt = datetime_cols[0]
+        dt_stats = column_stats.get(first_dt)
+        if isinstance(dt_stats, DatetimeStats):
+            start = dt_stats.min
+            end = dt_stats.max
+            period = dt_stats.sampling_interval_median_seconds
+    else:
+        start = "0"
+        end = str(length - 1) if length > 0 else None
+        period = 1.0
+
+    # Only numeric TS columns are value series that can be plotted. Datetime
+    # columns are the time index (used for start/end/period), not line series.
+    series_names = ts_numeric_cols
+    original: dict[str, list[float]] = {}
+    scaled: dict[str, list[float]] = {}
+
+    for name in ts_numeric_cols:
+        stats = column_stats[name]
+        if not isinstance(stats, NumericStats):
+            continue
+        values = stats.line_data
+        original[name] = values
+        if values:
+            mean = sum(values) / len(values)
+            var = sum((v - mean) ** 2 for v in values) / len(values)
+            std = var**0.5
+            scaled[name] = [round((v - mean) / std, 4) if std > 0 else 0.0 for v in values]
+        else:
+            scaled[name] = []
+
+    max_len = max((len(v) for v in original.values()), default=0)
+    x = [str(i) for i in range(max_len)]
+
+    return {
+        "n_series": len(ts_numeric_cols),
+        "length": length,
+        "datetime_columns": datetime_cols,
+        "numeric_ts_columns": ts_numeric_cols,
+        "start": start,
+        "end": end,
+        "period": period,
+        "series_names": series_names,
+        "x": x,
+        "original": original,
+        "scaled": scaled,
+    }
+
+
 def _total_missing(df: pl.DataFrame) -> int:
     if df.height == 0 or df.width == 0:
         return 0
     return sum(df.select(pl.all().null_count()).row(0))
 
 
-def _missing_per_column(
-    df: pl.DataFrame, n_rows: int
-) -> dict[str, dict[str, Any]]:
+def _missing_per_column(df: pl.DataFrame, n_rows: int) -> dict[str, dict[str, Any]]:
     if df.height == 0 or df.width == 0:
         return {}
     null_counts = df.select(pl.all().null_count()).row(0, named=True)
@@ -108,9 +182,7 @@ def _duplicate_count(df: pl.DataFrame, n_rows: int) -> int:
     return n_rows - n_unique
 
 
-def _duplicate_rows_sample(
-    df: pl.DataFrame, max_rows: int = _SAMPLE_SIZE
-) -> list[dict[str, Any]]:
+def _duplicate_rows_sample(df: pl.DataFrame, max_rows: int = _SAMPLE_SIZE) -> list[dict[str, Any]]:
     try:
         dupes = df.filter(df.is_duplicated()).head(max_rows)
         return _sample_rows(dupes)
