@@ -86,13 +86,17 @@ def compute_time_index(
     df: pl.DataFrame,
     column_types: dict[str, ColumnType],
     column_stats: dict[str, ColumnStats],
-    config: ProfileConfig | None = None,  # noqa: ARG001 — reserved for future thresholds
+    config: ProfileConfig | None = None,
 ) -> dict[str, Any] | None:
     """Build a dataset-level time-series overview for the report.
 
     Kept separate from compute_overview to avoid changing that function's
     signature; it is calculated once in ProfileReport after column stats exist.
     """
+    from dataxid_profiling._config import ProfileConfig as _PC
+
+    config = config or _PC()
+
     datetime_cols = [c for c, t in column_types.items() if t is ColumnType.DATETIME]
     ts_numeric_cols = [
         name for name, s in column_stats.items() if isinstance(s, NumericStats) and s.is_timeseries
@@ -118,9 +122,6 @@ def compute_time_index(
         end = str(length - 1) if length > 0 else None
         period = 1.0
 
-    # Only numeric TS columns are value series that can be plotted. Datetime
-    # columns are the time index (used for start/end/period), not line series.
-    series_names = ts_numeric_cols
     original: dict[str, list[float]] = {}
     scaled: dict[str, list[float]] = {}
 
@@ -130,30 +131,73 @@ def compute_time_index(
             continue
         values = stats.line_data
         original[name] = values
-        if values:
-            mean = sum(values) / len(values)
-            var = sum((v - mean) ** 2 for v in values) / len(values)
-            std = var**0.5
-            scaled[name] = [round((v - mean) / std, 4) if std > 0 else 0.0 for v in values]
-        else:
-            scaled[name] = []
+        scaled[name] = _scale_values(values)
 
+    # Datetime columns are the time index for start/end/period, but their
+    # timestamps are also valid value series. Plotting them fixes the empty
+    # overview plot for datetime-only datasets.
+    for name in datetime_cols:
+        values = _datetime_value_series(df, name, config)
+        if not values:
+            continue
+        original[name] = values
+        scaled[name] = _scale_values(values)
+
+    series_names = list(original.keys())
     max_len = max((len(v) for v in original.values()), default=0)
     x = [str(i) for i in range(max_len)]
 
     return {
         "n_series": len(ts_numeric_cols),
+        "plotted_series": len(series_names),
         "length": length,
         "datetime_columns": datetime_cols,
         "numeric_ts_columns": ts_numeric_cols,
         "start": start,
         "end": end,
         "period": period,
+        "sortby": config.ts_sortby,
         "series_names": series_names,
         "x": x,
         "original": original,
         "scaled": scaled,
     }
+
+
+def _scale_values(values: list[float]) -> list[float]:
+    """Standardize values to mean 0, std 1 for the scaled overview tab."""
+    if not values:
+        return []
+    mean = sum(values) / len(values)
+    var = sum((v - mean) ** 2 for v in values) / len(values)
+    std = var**0.5
+    return [round((v - mean) / std, 4) if std > 0 else 0.0 for v in values]
+
+
+def _datetime_value_series(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> list[float]:
+    """Extract a sampled timestamp series for a datetime column.
+
+    Falls back to an empty list if the column cannot be cast to float
+    timestamps, so datetime-only overview plots degrade gracefully.
+    """
+    try:
+        vals = df.select(pl.col(col_name).drop_nulls().to_physical().cast(pl.Float64)).get_column(
+            col_name
+        )
+    except Exception:
+        return []
+
+    n = vals.len()
+    if n == 0:
+        return []
+    max_points = config.ts_line_max_points
+    if n <= max_points:
+        return [round(v, 4) for v in vals.to_list()]
+
+    step = n / max_points
+    idxs = [int(i * step) for i in range(max_points)]
+    sampled = vals.gather(idxs)
+    return [round(v, 4) for v in sampled.to_list()]
 
 
 def _total_missing(df: pl.DataFrame) -> int:

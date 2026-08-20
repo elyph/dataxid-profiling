@@ -92,6 +92,7 @@ def _build_env() -> Environment:
     env.filters["format_number"] = _format_number
     env.filters["format_pct"] = _format_pct
     env.filters["format_float"] = _format_float
+    env.filters["format_sci"] = _format_sci
     env.filters["format_alert_value"] = _format_alert_value
     return env
 
@@ -122,6 +123,15 @@ def _format_float(value: Any) -> str:
         return "—"
     try:
         return f"{float(value):,.4f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_sci(value: Any) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.4e}"
     except (TypeError, ValueError):
         return str(value)
 

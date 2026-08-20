@@ -40,6 +40,7 @@ class TestProfileConfigDefaults:
         assert cfg.ts_line_max_points == 5_000
         assert cfg.ts_pacf_acf_lag == 50
         assert cfg.ts_seasonality_power_threshold == 0.1
+        assert cfg.ts_sortby is None
 
 
 class TestProfileConfigCustom:
@@ -138,3 +139,19 @@ class TestProfileConfigValidation:
     def test_invalid_ts_seasonality_power_threshold(self):
         with pytest.raises(ValueError, match="ts_seasonality_power_threshold"):
             ProfileConfig(ts_seasonality_power_threshold=0)
+
+    def test_ts_sortby_default_none(self):
+        cfg = ProfileConfig()
+        assert cfg.ts_sortby is None
+
+    def test_ts_sortby_string(self):
+        cfg = ProfileConfig(ts_sortby="ts")
+        assert cfg.ts_sortby == "ts"
+
+    def test_invalid_ts_sortby_type(self):
+        with pytest.raises(ValueError, match="ts_sortby"):
+            ProfileConfig(ts_sortby=123)  # type: ignore[arg-type]
+
+    def test_invalid_ts_sortby_empty(self):
+        with pytest.raises(ValueError, match="ts_sortby"):
+            ProfileConfig(ts_sortby="")

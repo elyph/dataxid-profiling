@@ -119,17 +119,23 @@
         Time Series Overview
       </h2>
       <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 p-6 border-b border-gray-100">
-          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Series</div>
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 p-6 border-b border-gray-100">
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Numeric TS series</div>
+          <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Plotted series</div>
           <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Length</div>
           <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Start</div>
           <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">End</div>
           <div class="text-xs text-gray-400 uppercase tracking-wider font-medium">Period (s)</div>
           <div class="text-2xl font-bold text-brand-teal">{{ time_index.n_series }}</div>
+          <div class="text-2xl font-bold text-brand-teal">{{ time_index.plotted_series }}</div>
           <div class="text-2xl font-bold text-brand-teal">{{ time_index.length | format_number }}</div>
           <div class="text-sm font-semibold text-brand-teal">{{ time_index.start or "—" }}</div>
           <div class="text-sm font-semibold text-brand-teal">{{ time_index.end or "—" }}</div>
           <div class="text-sm font-semibold text-brand-teal">{{ time_index.period if time_index.period is not none else "—" }}</div>
+        </div>
+        <div class="px-6 py-3 border-b border-gray-100 text-sm text-gray-500">
+          <span class="font-medium text-gray-400 uppercase tracking-wider text-xs">Sort by</span>
+          <span class="ml-2 font-mono text-brand-teal">{{ time_index.sortby or "natural row order" }}</span>
         </div>
         {% if time_index.series_names %}
         <div class="flex gap-2 px-6 pt-4" id="ts-overview-tabs">
@@ -277,8 +283,10 @@
                   {% if col_data.monotonic_decrease %}<tr class="stat-row"><td class="{{ s }} {{ l }}">Monotonic</td><td class="{{ s }} {{ r }}">Decreasing</td></tr>{% endif %}
                   {% if col_data.is_timeseries %}
                   <tr class="stat-row"><th colspan="2" class="py-2 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50">Time Series</th></tr>
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">ADF statistic</td><td class="{{ s }} {{ r }}">{{ col_data.adf_statistic | format_sci }}</td></tr>
                   <tr class="stat-row"><td class="{{ s }} {{ l }}">ADF p-value</td><td class="{{ s }} {{ r }}">{{ col_data.adf_pvalue | format_float }}</td></tr>
-                  <tr class="stat-row"><td class="{{ s }} {{ l }}">Stationary</td><td class="{{ s }} {{ r }}">{{ col_data.is_stationary }}</td></tr>
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">ADF stationary</td><td class="{{ s }} {{ r }}">{{ col_data.is_stationary }}</td></tr>
+                  <tr class="stat-row"><td class="{{ s }} {{ l }}">Stationary (effective)</td><td class="{{ s }} {{ r }}">{{ col_data.is_effective_stationary }}</td></tr>
                   {% if col_data.is_seasonal %}
                   <tr class="stat-row"><td class="{{ s }} {{ l }}">Seasonal Periods</td><td class="{{ s }} {{ r }}">{{ col_data.seasonal_periods }}</td></tr>
                   {% endif %}

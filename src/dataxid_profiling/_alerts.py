@@ -121,13 +121,17 @@ def _check_numeric(
     if stats.skewness is not None and abs(stats.skewness) > config.skewness_threshold:
         alerts.append(Alert(col_name, AlertType.SKEWED, abs(stats.skewness)))
 
-    if stats.is_timeseries and stats.adf_pvalue is not None and not stats.is_stationary:
+    if stats.is_timeseries and stats.adf_pvalue is not None and not stats.is_effective_stationary:
         alerts.append(
             Alert(
                 column=col_name,
                 alert_type=AlertType.NON_STATIONARY,
                 value=stats.adf_pvalue,
-                details={"adf_pvalue": stats.adf_pvalue},
+                details={
+                    "adf_pvalue": stats.adf_pvalue,
+                    "adf_statistic": stats.adf_statistic,
+                    "is_seasonal": stats.is_seasonal,
+                },
             )
         )
 

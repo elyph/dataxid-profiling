@@ -257,6 +257,19 @@ class TestProfileReportTimeIndex:
         html = report.to_html()
         assert "Time Series Overview" in html
 
+    def test_time_index_reflects_sortby(self):
+        import math
+
+        df = pl.DataFrame(
+            {
+                "val": [math.sin(2 * math.pi * i / 7) for i in range(200)],
+                "idx": list(range(200)),
+            }
+        )
+        report = ProfileReport(df, ts_sortby="idx")
+        assert report.time_index is not None
+        assert report.time_index["sortby"] == "idx"
+
 
 class TestProfileReportToHtml:
     def test_to_html_returns_string(self, mixed_df: pl.DataFrame):

@@ -299,6 +299,7 @@ class TestRenderTimeSeries:
     def test_timeseries_rows_present(self):
         df = pl.DataFrame({"val": [float(i) for i in range(200)]})
         html = _render(df)
+        assert "ADF statistic" in html
         assert "ADF p-value" in html
         assert "Stationary" in html
 
@@ -414,6 +415,18 @@ class TestRenderTimeIndexOverview:
         html = _render(df)
         assert "Scaled" in html
         assert 'id="ts-overview-scaled"' in html
+
+    def test_datetime_only_overview_has_series(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1, 0, 0)
+        df = pl.DataFrame({"ts": [base + timedelta(hours=i) for i in range(20)]})
+        column_types = infer_types(df, ProfileConfig())
+        column_stats = analyze(df, column_types, ProfileConfig())
+        time_index = compute_time_index(df, column_types, column_stats, ProfileConfig())
+        assert time_index is not None
+        assert "ts" in time_index["series_names"]
+        assert len(time_index["original"]["ts"]) > 0
 
 
 class TestRenderReproduction:

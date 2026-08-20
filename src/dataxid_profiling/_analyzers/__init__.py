@@ -61,8 +61,10 @@ class NumericStats(BaseStats):
     value_counts: list[dict[str, Any]] = field(default_factory=list)
     # Time series
     is_timeseries: bool = False
+    adf_statistic: float | None = None
     adf_pvalue: float | None = None
     is_stationary: bool = False
+    is_effective_stationary: bool = False
     line_data: list[float] = field(default_factory=list)
     acf_values: list[float] = field(default_factory=list)
     pacf_values: list[float] = field(default_factory=list)

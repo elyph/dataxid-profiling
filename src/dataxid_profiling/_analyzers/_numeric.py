@@ -61,12 +61,15 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
     top_values = _compute_value_counts(df, col_name, config.n_top_values)
 
     is_ts = _detect_timeseries(df, col_name, config)
-    adf_pvalue, is_stationary = _adf_stationarity(df, col_name, config) if is_ts else (None, False)
-    line_data = _extract_line_data(df, col_name, config.ts_line_max_points) if is_ts else []
+    adf_statistic, adf_pvalue, is_stationary = (
+        _adf_stationarity(df, col_name, config) if is_ts else (None, None, False)
+    )
+    line_data = _extract_line_data(df, col_name, config) if is_ts else []
     acf_values, pacf_values = _compute_acf_pacf(df, col_name, config) if is_ts else ([], [])
     is_seasonal, seasonal_periods = (
         _detect_seasonality(df, col_name, config) if is_ts else (False, [])
     )
+    is_effective_stationary = is_stationary and not is_seasonal
 
     return NumericStats(
         column_name=col_name,
@@ -103,8 +106,10 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
         histogram=histogram,
         value_counts=top_values,
         is_timeseries=is_ts,
+        adf_statistic=adf_statistic,
         adf_pvalue=adf_pvalue,
         is_stationary=is_stationary,
+        is_effective_stationary=is_effective_stationary,
         line_data=line_data,
         acf_values=acf_values,
         pacf_values=pacf_values,
@@ -164,19 +169,31 @@ def _compute_histogram(df: pl.DataFrame, col_name: str, bin_count: int) -> list[
         return []
 
 
+def _ordered_series(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> pl.Series:
+    """Return a float series, optionally sorted by ts_sortby before extraction.
+
+    Only used for numeric TS analysis. Datetime analysis keeps its own ordering.
+    Falls back silently to natural row order when the sort column is missing or
+    not usable.
+    """
+    source = df
+    sortby = config.ts_sortby
+    if sortby is not None and sortby in df.columns:
+        try:
+            source = df.sort(sortby)
+        except Exception:
+            source = df
+    return source.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+
+
 def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> bool:
     """Detect time dependence via lagged autocorrelation (Polars-native)."""
     if not config.ts_active:
         return False
 
-    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n < 3:
-        return False
-
-    mean = vals.mean()
-    var = vals.var()
-    if mean is None or var is None or var <= 0:
         return False
 
     for lag in config.ts_lags:
@@ -184,21 +201,48 @@ def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -
             continue
         orig = vals.slice(0, n - lag)
         shifted = vals.slice(lag, n - lag)
-        cov = ((orig - mean) * (shifted - mean)).sum() / (n - lag)
-        if cov / var >= config.ts_autocorrelation_threshold:
+        ac = _pearson_corr(orig, shifted)
+        if ac is not None and ac >= config.ts_autocorrelation_threshold:
             return True
 
     return False
 
 
+def _pearson_corr(a: pl.Series, b: pl.Series) -> float | None:
+    """Pearson correlation between two equal-length slices (pandas autocorr parity).
+
+    pandas Series.autocorr(lag) computes corr(series[lag:], series[:-lag]),
+    which uses each slice's own mean and std. This mirrors that exactly and
+    returns None when either slice has zero variance (pandas yields NaN).
+    """
+    n = a.len()
+    if n < 2:
+        return None
+
+    a_mean = a.mean()
+    b_mean = b.mean()
+    a_std = a.std(ddof=0)
+    b_std = b.std(ddof=0)
+    if a_mean is None or b_mean is None or a_std is None or b_std is None:
+        return None
+    if a_std <= 0 or b_std <= 0:
+        return None
+
+    cov = ((a - a_mean) * (b - b_mean)).sum() / n
+    return float(cov / (a_std * b_std))
+
+
 def _adf_stationarity(
     df: pl.DataFrame, col_name: str, config: ProfileConfig
-) -> tuple[float | None, bool]:
-    """Augmented Dickey-Fuller test via statsmodels."""
-    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+) -> tuple[float | None, float | None, bool]:
+    """Augmented Dickey-Fuller test via statsmodels.
+
+    Returns (statistic, p_value, is_stationary).
+    """
+    vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n < 5:
-        return None, False
+        return None, None, False
 
     if config.ts_adf_max_points is not None and n > config.ts_adf_max_points:
         step = n / config.ts_adf_max_points
@@ -214,19 +258,21 @@ def _adf_stationarity(
             autolag=config.ts_adf_autolag,
             maxlag=config.ts_adf_maxlag,
         )
+        statistic = float(result[0])
         p_value = float(result[1])
     except Exception:
-        return None, False
+        return None, None, False
 
-    return p_value, p_value < config.ts_significance
+    return statistic, p_value, p_value < config.ts_significance
 
 
-def _extract_line_data(df: pl.DataFrame, col_name: str, max_points: int) -> list[float]:
+def _extract_line_data(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> list[float]:
     """Uniform-sample numeric series for a lightweight line plot."""
-    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n == 0:
         return []
+    max_points = config.ts_line_max_points
     if n <= max_points:
         return [round(v, 4) for v in vals.to_list()]
     step = n / max_points
@@ -239,7 +285,7 @@ def _compute_acf_pacf(
     df: pl.DataFrame, col_name: str, config: ProfileConfig
 ) -> tuple[list[float], list[float]]:
     """Compute ACF and PACF via statsmodels for a time-series column."""
-    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n < 3:
         return [], []
@@ -273,23 +319,31 @@ def _detect_seasonality(
     df: pl.DataFrame, col_name: str, config: ProfileConfig
 ) -> tuple[bool, list[float]]:
     """Detect periodic seasonality via FFT power-spectrum peak detection."""
-    vals = df.select(pl.col(col_name).drop_nulls()).get_column(col_name).cast(pl.Float64)
+    vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n < 16:
         return False, []
 
     try:
         import numpy as np
-        from scipy.signal import detrend, find_peaks
+        from scipy.signal import find_peaks, periodogram
 
-        x = detrend(vals.to_numpy())
+        x = vals.to_numpy()
 
-        data_fft = np.fft.fft(x)
-        psd = np.abs(data_fft) ** 2
-        freqs = np.fft.fftfreq(n)
+        # One-sided spectrum with linear detrend and a rectangular window.
+        # periodogram keeps the scaling consistent and avoids computing the
+        # symmetric negative frequencies of a real-valued signal.
+        freq, psd = periodogram(
+            x,
+            fs=1.0,
+            window="boxcar",
+            detrend="linear",
+            return_onesided=True,
+            scaling="spectrum",
+        )
 
-        pos = (freqs > 0) & (freqs > (2.0 / n))
-        freq = freqs[pos]
+        pos = (freq > 0) & (freq > (2.0 / n))
+        freq = freq[pos]
         psd_pos = psd[pos]
         total_power = float(psd_pos.sum())
         # Detrended flat signals (e.g. a pure linear trend) leave only a
@@ -307,10 +361,34 @@ def _detect_seasonality(
         if dominant < config.ts_seasonality_power_threshold:
             return False, []
 
-        periods = [round(float(1.0 / freq[i]), 2) for i in peak_indices[:3]]
+        periods = _harmonic_filtered_periods(freq, peak_indices)
         return True, periods
     except Exception:
         return False, []
+
+
+def _harmonic_filtered_periods(freq: Any, peak_indices: Any) -> list[float]:
+    """Keep fundamental periods, dropping near-integer multiples of stronger peaks.
+
+    Mirrors ydata's harmonic cleaning: a peak whose frequency is a near-integer
+    multiple of an already-kept stronger peak is considered a harmonic.
+    """
+    kept: list[float] = []
+    for idx in peak_indices[:3]:
+        f = float(freq[idx])
+        if f <= 0:
+            continue
+        is_harmonic = False
+        for base_f in kept:
+            ratio = f / base_f
+            fraction = abs(ratio - round(ratio))
+            if fraction < 0.01:
+                is_harmonic = True
+                break
+        if not is_harmonic:
+            kept.append(f)
+
+    return [round(float(1.0 / f), 2) for f in kept]
 
 
 def _safe_float(val: Any) -> float | None:

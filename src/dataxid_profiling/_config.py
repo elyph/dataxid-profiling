@@ -50,6 +50,7 @@ class ProfileConfig:
     ts_line_max_points: int = 5_000
     ts_pacf_acf_lag: int = 50
     ts_seasonality_power_threshold: float = 0.1
+    ts_sortby: str | None = None
 
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
     mode: Literal["complete", "overview"] = "complete"
@@ -130,4 +131,10 @@ class ProfileConfig:
                 "ts_seasonality_power_threshold must be in (0, 1], "
                 f"got {self.ts_seasonality_power_threshold}"
             )
+            raise ValueError(msg)
+        if self.ts_sortby is not None and not isinstance(self.ts_sortby, str):
+            msg = f"ts_sortby must be a string or None, got {self.ts_sortby!r}"
+            raise ValueError(msg)
+        if self.ts_sortby == "":
+            msg = "ts_sortby must not be an empty string"
             raise ValueError(msg)

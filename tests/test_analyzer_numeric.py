@@ -285,6 +285,15 @@ class TestNumericTimeSeries:
         assert stats.is_timeseries is True
         assert stats.adf_pvalue is not None
         assert stats.is_stationary is False
+        assert stats.adf_statistic is not None
+
+    def test_adf_statistic_none_for_non_ts(self, config: ProfileConfig):
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is False
+        assert stats.adf_statistic is None
+        assert stats.adf_pvalue is None
 
     def test_white_noise_stationary(self, config: ProfileConfig):
         rng = random.Random(7)
@@ -293,6 +302,14 @@ class TestNumericTimeSeries:
         if stats.is_timeseries:
             assert stats.adf_pvalue is not None
             assert stats.is_stationary is True
+
+    def test_seasonal_effective_stationary_false(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.is_seasonal is True
+        assert stats.is_stationary is True
+        assert stats.is_effective_stationary is False
 
     def test_adf_sampling_caps_points(self):
         df = pl.DataFrame({"val": [float(i) for i in range(50_000)]})
@@ -376,3 +393,29 @@ class TestNumericSeasonality:
         stats = analyze_numeric(df, "val", config)
         if stats.is_seasonal:
             assert len(stats.seasonal_periods) > 0
+
+    def test_harmonics_not_in_periods(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        if stats.is_seasonal:
+            fundamental = min(stats.seasonal_periods)
+            for p in stats.seasonal_periods:
+                if p > fundamental:
+                    ratio = p / fundamental
+                    assert abs(ratio - round(ratio)) >= 0.01
+
+
+class TestNumericSortby:
+    def test_sortby_missing_column_falls_back(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        cfg = ProfileConfig(ts_sortby="does_not_exist")
+        stats = analyze_numeric(df, "val", cfg)
+        assert stats.is_timeseries is True
+
+    def test_sortby_numeric_index_recovers_timeseries(self):
+        vals = [math.sin(2 * math.pi * i / 7) for i in range(200)]
+        shuffled = vals[::2] + vals[1::2]
+        df = pl.DataFrame({"val": shuffled, "idx": list(range(200))})
+        cfg = ProfileConfig(ts_sortby="idx")
+        stats = analyze_numeric(df, "val", cfg)
+        assert stats.is_timeseries is True

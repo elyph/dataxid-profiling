@@ -376,6 +376,16 @@ class TestTimeSeriesAlerts:
         assert len(seasonal) == 1
         assert seasonal[0].details["seasonal_periods"]
 
+    def test_seasonal_also_non_stationary(self):
+        import math
+
+        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        alerts = _get_alerts(df)
+        col_alerts = _alerts_for_column(alerts, "val")
+        types = {a.alert_type for a in col_alerts}
+        assert AlertType.SEASONAL in types
+        assert AlertType.NON_STATIONARY in types
+
     def test_white_noise_no_seasonal_alert(self):
         rng = random.Random(7)
         df = pl.DataFrame({"val": [rng.gauss(0, 1) for _ in range(500)]})
