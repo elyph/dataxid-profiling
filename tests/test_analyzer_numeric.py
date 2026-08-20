@@ -274,6 +274,31 @@ class TestNumericTimeSeries:
         assert stats.is_timeseries is False
         assert stats.adf_pvalue is None
 
+    def test_low_cardinality_not_timeseries(self, config: ProfileConfig):
+        """Columns with <6 distinct values are not meaningful time series.
+
+        Mirrors ydata's exclusion of binary/ordinal columns from the numeric
+        TS list. A monotonic 0/1 sequence (e.g. yr) would otherwise pass the
+        autocorrelation threshold because of its repeating pattern.
+        """
+        df = pl.DataFrame(
+            {"yr": [0] * 90 + [1] * 90, "season": [i % 4 + 1 for i in range(180)]}
+        )
+        for col in ("yr", "season"):
+            stats = analyze_numeric(df, col, config)
+            assert stats.is_timeseries is False, col
+            assert stats.adf_pvalue is None, col
+            assert stats.is_seasonal is False, col
+
+    def test_mid_cardinality_stays_timeseries(self, config: ProfileConfig):
+        """mnth (12) and weekday (7) have enough distinct values to be TS."""
+        df = pl.DataFrame(
+            {"mnth": [i % 12 + 1 for i in range(200)], "weekday": [i % 7 for i in range(200)]}
+        )
+        for col in ("mnth", "weekday"):
+            stats = analyze_numeric(df, col, config)
+            assert stats.is_timeseries is True, col
+
     def test_null_heavy_does_not_crash(self, config: ProfileConfig):
         df = pl.DataFrame({"val": [float(i) if i % 3 != 0 else None for i in range(60)]})
         stats = analyze_numeric(df, "val", config)
@@ -384,6 +409,16 @@ class TestNumericSeasonality:
     def test_ts_active_false_not_seasonal(self):
         df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
         config = ProfileConfig(ts_active=False)
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_low_cardinality_skip_seasonality(self, config: ProfileConfig):
+        """Columns with <6 distinct values (e.g. season with 4 values) cannot
+        carry a meaningful Fourier period — FFT would report spurious peaks.
+        ydata excludes these from the numeric TS list; we short-circuit."""
+        # 4 distinct values, 200 rows, alternating 1,2,3,4,1,2,3,4,...
+        df = pl.DataFrame({"val": [i % 4 + 1 for i in range(200)]})
         stats = analyze_numeric(df, "val", config)
         assert stats.is_seasonal is False
         assert stats.seasonal_periods == []

@@ -196,6 +196,15 @@ def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -
     if n < 3:
         return False
 
+    # Low-cardinality columns (yr/season/holiday/workingday) are categorical in
+    # ydata and cannot meaningfully be time series: their values repeat so often
+    # that any lag autocorrelates, but the signal carries no information. We use
+    # distinct < 6 so mnth (12) and weekday (7) still qualify as TS, matching
+    # ydata's numeric TS list on the bike hour dataset.
+    distinct = df.select(pl.col(col_name).n_unique()).item()
+    if distinct < 6:
+        return False
+
     for lag in config.ts_lags:
         if lag >= n:
             continue
@@ -322,6 +331,14 @@ def _detect_seasonality(
     vals = _ordered_series(df, col_name, config)
     n = vals.len()
     if n < 16:
+        return False, []
+
+    # Low-cardinality columns (e.g. season with 4 values, holiday binary) cannot
+    # carry a meaningful Fourier period — the spectrum reports spurious peaks
+    # that never represent real seasonality. Matches _detect_timeseries: columns
+    # with < 6 distinct values never reach the FFT stage.
+    distinct = df.select(pl.col(col_name).n_unique()).item()
+    if distinct < 6:
         return False, []
 
     try:
