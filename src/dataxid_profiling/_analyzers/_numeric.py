@@ -74,7 +74,7 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
     adf_statistic, adf_pvalue, is_stationary = (
         _adf_stationarity(df, col_name, config) if is_ts else (None, None, False)
     )
-    line_data = _extract_line_data(df, col_name, config) if is_ts else []
+    line_data, line_x = _extract_line_xy(df, col_name, config) if is_ts else ([], [])
     acf_values, pacf_values = _compute_acf_pacf(df, col_name, config) if is_ts else ([], [])
     is_seasonal, seasonal_periods = (
         _detect_seasonality(df, col_name, config) if is_ts else (False, [])
@@ -121,6 +121,7 @@ def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> N
         is_stationary=is_stationary,
         is_effective_stationary=is_effective_stationary,
         line_data=line_data,
+        line_x=line_x,
         acf_values=acf_values,
         pacf_values=pacf_values,
         is_seasonal=is_seasonal,
@@ -344,19 +345,62 @@ def _adf_stationarity(
     return statistic, p_value, p_value < config.ts_significance
 
 
-def _extract_line_data(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> list[float]:
-    """Uniform-sample numeric series for a lightweight line plot."""
-    vals = _ordered_series(df, col_name, config)
-    n = vals.len()
+def _extract_line_xy(
+    df: pl.DataFrame, col_name: str, config: ProfileConfig
+) -> tuple[list[float], list[str]]:
+    """Uniform-sample (x, y) pairs for a time-series line plot.
+
+    The y values are the numeric series; the x values are real timestamps when
+    ``ts_sortby`` points at a datetime column, otherwise positional indices.
+    Both axes come from the same rows and the same ``ts_line_max_points``
+    sampling so the plot stays aligned.
+    """
+    source = df
+    sortby = config.ts_sortby
+    if sortby is not None and sortby in df.columns:
+        try:
+            source = df.sort(sortby)
+        except Exception:
+            source = df
+
+    source = source.filter(pl.col(col_name).is_not_null())
+    n = source.height
     if n == 0:
-        return []
+        return [], []
+
+    y_vals = source.get_column(col_name).cast(pl.Float64)
+    has_time_x = sortby is not None and sortby in source.columns
+
     max_points = config.ts_line_max_points
-    if n <= max_points:
-        return [round(v, 4) for v in vals.to_list()]
-    step = n / max_points
-    idxs = [int(i * step) for i in range(max_points)]
-    sampled = vals.gather(idxs)
-    return [round(v, 4) for v in sampled.to_list()]
+    if n > max_points:
+        step = n / max_points
+        idxs = [int(i * step) for i in range(max_points)]
+        y_sampled = y_vals.gather(idxs)
+        x_series = (
+            source.get_column(sortby).gather(idxs)
+            if has_time_x
+            else pl.Series([i for i in idxs])
+        )
+    else:
+        y_sampled = y_vals
+        x_series = source.get_column(sortby) if has_time_x else pl.Series([i for i in range(n)])
+
+    y = [round(v, 4) for v in y_sampled.to_list()]
+    x = _format_timestamps(x_series) if has_time_x else [str(v) for v in x_series.to_list()]
+    return y, x
+
+
+def _format_timestamps(series: pl.Series) -> list[str]:
+    """Render datetime values as compact string labels for a category axis."""
+    try:
+        if isinstance(series.dtype, pl.Datetime):
+            return [
+                v.strftime("%Y-%m-%d %H:%M") if v is not None else ""
+                for v in series.to_list()
+            ]
+        return [str(v) for v in series.to_list()]
+    except Exception:
+        return [str(v) for v in series.to_list()]
 
 
 def _compute_acf_pacf(

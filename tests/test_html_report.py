@@ -317,6 +317,28 @@ class TestRenderTimeSeries:
         assert 'id="col_ts_0"' in html
         assert "Time Series" in html
 
+    def test_ts_histogram_absent(self):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        html = _render(df)
+        assert "Distribution" not in html
+
+    def test_ts_line_x_uses_real_timestamps(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2024, 1, 1)
+        df = pl.DataFrame(
+            {
+                "t": [base + timedelta(hours=i) for i in range(200)],
+                "val": [float(i) for i in range(200)],
+            }
+        )
+        html = _render(df, ProfileConfig(ts_sortby="t"))
+        assert 'id="col_ts_1"' in html
+        assert "Time Series" in html
+        # Line chart labels use minute-resolution timestamps (no trailing seconds),
+        # distinct from the datetime column's own min/max "2024-01-01 00:00:00".
+        assert "2024-01-01 00:00" in html
+
     def test_ts_line_plot_absent_when_not_ts(self):
         import random
 

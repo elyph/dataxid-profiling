@@ -66,6 +66,7 @@ class NumericStats(BaseStats):
     is_stationary: bool = False
     is_effective_stationary: bool = False
     line_data: list[float] = field(default_factory=list)
+    line_x: list[str] = field(default_factory=list)
     acf_values: list[float] = field(default_factory=list)
     pacf_values: list[float] = field(default_factory=list)
     is_seasonal: bool = False

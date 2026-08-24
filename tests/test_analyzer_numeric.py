@@ -352,6 +352,32 @@ class TestNumericTimeSeries:
         stats = analyze_numeric(df, "val", config)
         assert len(stats.line_data) == 100
 
+    def test_line_x_matches_line_data_length(self, config: ProfileConfig):
+        df = pl.DataFrame({"val": [float(i) for i in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert len(stats.line_x) == len(stats.line_data)
+
+    def test_line_x_uses_real_timestamps_with_sortby(self):
+        base = datetime(2024, 1, 1)
+        df = pl.DataFrame(
+            {
+                "t": [base + timedelta(hours=i) for i in range(200)],
+                "val": [float(i) for i in range(200)],
+            }
+        )
+        config = ProfileConfig(ts_sortby="t")
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert len(stats.line_x) == len(stats.line_data)
+        assert all("2024" in x for x in stats.line_x)
+
+    def test_line_x_empty_for_non_ts(self, config: ProfileConfig):
+        rng = random.Random(42)
+        df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.line_x == []
+
     def test_line_data_empty_for_non_ts(self, config: ProfileConfig):
         rng = random.Random(42)
         df = pl.DataFrame({"val": [rng.random() for _ in range(200)]})

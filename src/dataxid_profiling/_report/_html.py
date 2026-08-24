@@ -185,7 +185,7 @@ def _prepare_columns(
 def _chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> str:
     div_id = f"col_chart_{idx}"
 
-    if isinstance(stats, NumericStats) and stats.histogram:
+    if isinstance(stats, NumericStats) and stats.histogram and not stats.is_timeseries:
         labels = [str(round(h["breakpoint"], 2)) for h in stats.histogram]
         values = [h["count"] for h in stats.histogram]
         return renderer.histogram(div_id, labels, values, title="Distribution")
@@ -218,7 +218,7 @@ def _chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> 
 def _ts_chart_for_column(stats: ColumnStats, renderer: ChartRenderer, idx: int) -> str:
     if not isinstance(stats, NumericStats) or not stats.is_timeseries or not stats.line_data:
         return ""
-    x = [str(i) for i in range(len(stats.line_data))]
+    x = stats.line_x or [str(i) for i in range(len(stats.line_data))]
     return renderer.line(f"col_ts_{idx}", x, stats.line_data, title="Time Series")
 
 

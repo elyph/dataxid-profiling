@@ -242,6 +242,11 @@
               {% else %}bg-gray-100 text-gray-600{% endif %}">
               {{ col_data.column_type }}
             </span>
+            {% if col_data.is_timeseries %}
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-brand-teal/10 text-brand-teal ring-1 ring-brand-teal/20">
+              Time Series
+            </span>
+            {% endif %}
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-0">
