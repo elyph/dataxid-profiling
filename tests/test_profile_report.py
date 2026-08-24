@@ -270,6 +270,22 @@ class TestProfileReportTimeIndex:
         assert report.time_index is not None
         assert report.time_index["sortby"] == "idx"
 
+    def test_time_index_period_includes_std(self):
+        import math
+        from datetime import datetime, timedelta
+
+        df = pl.DataFrame(
+            {
+                "val": [math.sin(2 * math.pi * i / 96) for i in range(400)],
+                "t": [datetime(2011, 1, 1, 0, 0) + timedelta(minutes=15 * i) for i in range(400)],
+            }
+        )
+        report = ProfileReport(df, ts_sortby="t")
+        assert report.time_index is not None
+        period = report.time_index["period"]
+        assert isinstance(period, str)
+        assert "±" in period
+
 
 class TestProfileReportToHtml:
     def test_to_html_returns_string(self, mixed_df: pl.DataFrame):

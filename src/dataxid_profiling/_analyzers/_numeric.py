@@ -19,6 +19,32 @@ if TYPE_CHECKING:
 # spread (e.g. [0, 10, 1000, 5000]) stays eligible for TS analysis.
 _ORDINAL_MAX_DISTINCT = 5
 _ORDINAL_MAX_ABS_VALUE = 100
+_ORDINAL_DENSE_RANGE_SLACK = 2
+
+# Time-series detection minimums. ADF needs 5 points for a stable regression,
+# ACF/PACF need 3 for a meaningful lag, and FFT seasonality needs enough
+# points to resolve a low-frequency peak without a spurious boundary bin.
+_MIN_POINTS_TIMESERIES = 3
+_MIN_POINTS_ADF = 5
+_MIN_POINTS_ACF_PACF = 3
+_MIN_POINTS_SEASONALITY = 16
+
+# Default lag list is hourly-oriented (1h, 7h, 12h, 24h, 30h); when a sampling
+# interval is known we also probe one day and one week in sample units.
+_BASE_TS_LAGS = (1, 7, 12, 24, 30)
+_DAY_SECONDS = 86_400
+_WEEK_SECONDS = 604_800
+
+# FFT seasonality: a one-sided spectrum with a rectangular window and linear
+# detrend; keep only frequencies above 2/n (one full cycle in the window) and
+# treat a near-zero total power as a flat, non-seasonal signal.
+_MIN_FREQ_CYCLES = 2.0
+_SEASONAL_TOTAL_POWER_EPS = 1e-8
+
+# Harmonic cleaning keeps at most the top 3 peaks and drops a peak whose
+# frequency is within this fraction of a near-integer multiple of a kept peak.
+_MAX_PERIOD_PEAKS = 3
+_HARMONIC_RATIO_TOLERANCE = 0.01
 
 
 def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> NumericStats:
@@ -204,7 +230,7 @@ def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -
 
     vals = _ordered_series(df, col_name, config)
     n = vals.len()
-    if n < 3:
+    if n < _MIN_POINTS_TIMESERIES:
         return False
 
     if _is_ordinal_code(df, col_name):
@@ -250,7 +276,7 @@ def _is_ordinal_code(df: pl.DataFrame, col_name: str) -> bool:
     # Dense range: the count of integers covered by [min, max] is close to the
     # number of distinct values. season (1..4) has span 4 == distinct 4.
     span = int(max_val) - int(min_val) + 1
-    return span <= distinct + 2
+    return span <= distinct + _ORDINAL_DENSE_RANGE_SLACK
 
 
 def _derive_ts_lags(df: pl.DataFrame, config: ProfileConfig) -> tuple[int, ...]:
@@ -260,7 +286,7 @@ def _derive_ts_lags(df: pl.DataFrame, config: ProfileConfig) -> tuple[int, ...]:
     datetime column, add daily and weekly lags derived from its median sampling
     interval (e.g. 15-minute data gets 96 and 672).
     """
-    base = (1, 7, 12, 24, 30)
+    base = _BASE_TS_LAGS
     sortby = config.ts_sortby
     if sortby is None or sortby not in df.columns:
         return base
@@ -280,7 +306,7 @@ def _derive_ts_lags(df: pl.DataFrame, config: ProfileConfig) -> tuple[int, ...]:
         return base
 
     extra: list[int] = []
-    for target_seconds in (86_400, 604_800):
+    for target_seconds in (_DAY_SECONDS, _WEEK_SECONDS):
         lag = round(target_seconds / median)
         if lag not in base and lag >= 1:
             extra.append(lag)
@@ -320,7 +346,7 @@ def _adf_stationarity(
     """
     vals = _ordered_series(df, col_name, config)
     n = vals.len()
-    if n < 5:
+    if n < _MIN_POINTS_ADF:
         return None, None, False
 
     if config.ts_adf_max_points is not None and n > config.ts_adf_max_points:
@@ -409,7 +435,7 @@ def _compute_acf_pacf(
     """Compute ACF and PACF via statsmodels for a time-series column."""
     vals = _ordered_series(df, col_name, config)
     n = vals.len()
-    if n < 3:
+    if n < _MIN_POINTS_ACF_PACF:
         return [], []
 
     if config.ts_acf_pacf_max_points is not None and n > config.ts_acf_pacf_max_points:
@@ -442,59 +468,77 @@ def _detect_seasonality(
 ) -> tuple[bool, list[float]]:
     """Detect periodic seasonality via FFT power-spectrum peak detection."""
     vals = _ordered_series(df, col_name, config)
-    n = vals.len()
-    if n < 16:
+    if vals.len() < _MIN_POINTS_SEASONALITY:
         return False, []
 
     try:
-        import numpy as np
-        from scipy.signal import find_peaks, periodogram
-
-        x = vals.to_numpy()
-
-        # One-sided spectrum with linear detrend and a rectangular window.
-        # periodogram keeps the scaling consistent and avoids computing the
-        # symmetric negative frequencies of a real-valued signal.
-        freq, psd = periodogram(
-            x,
-            fs=1.0,
-            window="boxcar",
-            detrend="linear",
-            return_onesided=True,
-            scaling="spectrum",
-        )
-
-        pos = (freq > 0) & (freq > (2.0 / n))
-        freq = freq[pos]
-        psd_pos = psd[pos]
-        total_power = float(psd_pos.sum())
-        # Detrended flat signals (e.g. a pure linear trend) leave only a
-        # near-zero numerical residue; treat them as non-seasonal instead of
-        # letting a tiny max/median ratio fire a spurious peak.
-        if total_power <= 1e-8:
-            return False, []
-
-        noise_floor = float(np.median(psd_pos))
-        if noise_floor <= 0:
-            return False, []
-
-        peak_indices, _ = find_peaks(psd_pos)
-        if len(peak_indices) == 0:
-            return False, []
-
-        peak_indices = peak_indices[np.argsort(psd_pos[peak_indices])[::-1]]
-        # Signal-to-noise ratio against the spectral median. White noise has
-        # max/median ~ ln(n_bins); a real periodic signal stands far above it.
-        # Using the median (not total power) stops broadband power from
-        # drowning out a weak but coherent daily/weekly peak.
-        snr = float(psd_pos[peak_indices[0]] / noise_floor)
-        if snr < config.ts_seasonality_snr_threshold:
-            return False, []
-
-        periods = _harmonic_filtered_periods(freq, peak_indices)
-        return True, periods
+        freq, psd = _periodogram_spectrum(vals)
+        peak_indices, snr = _seasonal_peaks(freq, psd)
     except Exception:
         return False, []
+
+    if peak_indices is None or snr < config.ts_seasonality_snr_threshold:
+        return False, []
+
+    return True, _harmonic_filtered_periods(freq, peak_indices)
+
+
+def _periodogram_spectrum(vals: pl.Series) -> tuple[Any, Any]:
+    """Compute the positive one-sided power spectrum of a numeric series.
+
+    A rectangular window plus linear detrend keeps the scaling consistent and
+    avoids computing the symmetric negative frequencies of a real signal.
+    Returns the positive frequencies and their PSD, or (None, None) when the
+    series is flat.
+    """
+    from scipy.signal import periodogram
+
+    n = vals.len()
+    freq, psd = periodogram(
+        vals.to_numpy(),
+        fs=1.0,
+        window="boxcar",
+        detrend="linear",
+        return_onesided=True,
+        scaling="spectrum",
+    )
+
+    pos = (freq > 0) & (freq > (_MIN_FREQ_CYCLES / n))
+    freq = freq[pos]
+    psd_pos = psd[pos]
+    # Detrended flat signals (e.g. a pure linear trend) leave only a near-zero
+    # numerical residue; return None so the caller treats them as non-seasonal.
+    if float(psd_pos.sum()) <= _SEASONAL_TOTAL_POWER_EPS:
+        return None, None
+    return freq, psd_pos
+
+
+def _seasonal_peaks(freq: Any, psd: Any) -> tuple[Any, float]:
+    """Return candidate peak indices (strongest first) and their best SNR.
+
+    Peaks are found on the positive spectrum; the signal-to-noise ratio is the
+    strongest peak against the spectral median. White noise has max/median ~
+    ln(n_bins), so a real periodic signal stands far above it. Using the median
+    (not total power) stops broadband power from drowning out a weak but
+    coherent daily/weekly peak.
+    """
+    import numpy as np
+    from scipy.signal import find_peaks
+
+    if freq is None or psd is None:
+        return None, 0.0
+
+    noise_floor = float(np.median(psd))
+    if noise_floor <= 0:
+        return None, 0.0
+
+    peak_indices, _ = find_peaks(psd)
+    if len(peak_indices) == 0:
+        return None, 0.0
+
+    peak_indices = peak_indices[np.argsort(psd[peak_indices])[::-1]]
+    snr = float(psd[peak_indices[0]] / noise_floor)
+    return peak_indices, snr
 
 
 def _harmonic_filtered_periods(freq: Any, peak_indices: Any) -> list[float]:
@@ -504,7 +548,7 @@ def _harmonic_filtered_periods(freq: Any, peak_indices: Any) -> list[float]:
     multiple of an already-kept stronger peak is considered a harmonic.
     """
     kept: list[float] = []
-    for idx in peak_indices[:3]:
+    for idx in peak_indices[:_MAX_PERIOD_PEAKS]:
         f = float(freq[idx])
         if f <= 0:
             continue
@@ -512,7 +556,7 @@ def _harmonic_filtered_periods(freq: Any, peak_indices: Any) -> list[float]:
         for base_f in kept:
             ratio = f / base_f
             fraction = abs(ratio - round(ratio))
-            if fraction < 0.01:
+            if fraction < _HARMONIC_RATIO_TOLERANCE:
                 is_harmonic = True
                 break
         if not is_harmonic:
