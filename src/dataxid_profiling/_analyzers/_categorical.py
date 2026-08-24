@@ -20,15 +20,23 @@ def analyze_categorical(
     if n_rows == 0:
         return _empty_stats(col_name)
 
+    # Low-cardinality integer columns (season, yr, holiday) are inferred as
+    # categorical, but string-only expressions would fail on them. Cast values
+    # to strings for text-ish metrics; counts still come from the raw column.
+    if df[col_name].dtype.is_integer():
+        text_col = col.cast(pl.String)
+    else:
+        text_col = col
+
     row = df.select(
         col.null_count().alias("missing_count"),
         col.drop_nulls().n_unique().alias("distinct_count"),
-        col.str.len_chars().min().alias("length_min"),
-        col.str.len_chars().max().alias("length_max"),
-        col.str.len_chars().mean().alias("length_mean"),
-        col.str.len_chars().median().alias("length_median"),
-        col.str.split(" ").list.len().mean().alias("word_count_mean"),
-        col.str.contains(r"[^\x00-\x7F]").any().alias("has_non_ascii"),
+        text_col.str.len_chars().min().alias("length_min"),
+        text_col.str.len_chars().max().alias("length_max"),
+        text_col.str.len_chars().mean().alias("length_mean"),
+        text_col.str.len_chars().median().alias("length_median"),
+        text_col.str.split(" ").list.len().mean().alias("word_count_mean"),
+        text_col.str.contains(r"[^\x00-\x7F]").any().alias("has_non_ascii"),
     ).row(0, named=True)
 
     missing_count: int = row["missing_count"]
@@ -120,7 +128,7 @@ def _compute_character_stats(
     """Character frequency analysis. Returns (top_chars, total_chars, distinct_chars)."""
     try:
         exploded = (
-            df.select(pl.col(col_name))
+            df.select(pl.col(col_name).cast(pl.String))
             .drop_nulls()
             .select(pl.col(col_name).str.split("").explode().alias("char"))
             .filter(pl.col("char") != "")
@@ -151,7 +159,7 @@ def _compute_length_histogram(
 ) -> list[dict[str, Any]]:
     try:
         hist_df = df.select(
-            pl.col(col_name).str.len_chars().alias("_len")
+            pl.col(col_name).cast(pl.String).str.len_chars().alias("_len")
         ).drop_nulls().select(
             pl.col("_len").hist(bin_count=bin_count, include_breakpoint=True)
         ).unnest("_len")

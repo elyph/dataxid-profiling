@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
@@ -274,13 +275,8 @@ class TestNumericTimeSeries:
         assert stats.is_timeseries is False
         assert stats.adf_pvalue is None
 
-    def test_low_cardinality_not_timeseries(self, config: ProfileConfig):
-        """Columns with <6 distinct values are not meaningful time series.
-
-        Mirrors ydata's exclusion of binary/ordinal columns from the numeric
-        TS list. A monotonic 0/1 sequence (e.g. yr) would otherwise pass the
-        autocorrelation threshold because of its repeating pattern.
-        """
+    def test_ordinal_code_not_timeseries(self, config: ProfileConfig):
+        """Dense low-range integers (yr 0/1, season 1..4) are codes, not TS."""
         df = pl.DataFrame(
             {"yr": [0] * 90 + [1] * 90, "season": [i % 4 + 1 for i in range(180)]}
         )
@@ -289,6 +285,12 @@ class TestNumericTimeSeries:
             assert stats.is_timeseries is False, col
             assert stats.adf_pvalue is None, col
             assert stats.is_seasonal is False, col
+
+    def test_sparse_few_values_stays_timeseries(self, config: ProfileConfig):
+        """Few distinct values but wide spread is a measurement, not a code."""
+        df = pl.DataFrame({"val": [0, 10, 1000, 5000] * 50})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
 
     def test_mid_cardinality_stays_timeseries(self, config: ProfileConfig):
         """mnth (12) and weekday (7) have enough distinct values to be TS."""
@@ -413,16 +415,6 @@ class TestNumericSeasonality:
         assert stats.is_seasonal is False
         assert stats.seasonal_periods == []
 
-    def test_low_cardinality_skip_seasonality(self, config: ProfileConfig):
-        """Columns with <6 distinct values (e.g. season with 4 values) cannot
-        carry a meaningful Fourier period — FFT would report spurious peaks.
-        ydata excludes these from the numeric TS list; we short-circuit."""
-        # 4 distinct values, 200 rows, alternating 1,2,3,4,1,2,3,4,...
-        df = pl.DataFrame({"val": [i % 4 + 1 for i in range(200)]})
-        stats = analyze_numeric(df, "val", config)
-        assert stats.is_seasonal is False
-        assert stats.seasonal_periods == []
-
     def test_seasonal_periods_non_empty_when_seasonal(self, config: ProfileConfig):
         df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
         stats = analyze_numeric(df, "val", config)
@@ -452,5 +444,39 @@ class TestNumericSortby:
         shuffled = vals[::2] + vals[1::2]
         df = pl.DataFrame({"val": shuffled, "idx": list(range(200))})
         cfg = ProfileConfig(ts_sortby="idx")
+        stats = analyze_numeric(df, "val", cfg)
+        assert stats.is_timeseries is True
+
+
+class TestDeriveTsLags:
+    def test_default_without_sortby(self):
+        from dataxid_profiling._analyzers._numeric import _derive_ts_lags
+
+        df = pl.DataFrame({"val": [float(i) for i in range(100)]})
+        cfg = ProfileConfig()
+        assert _derive_ts_lags(df, cfg) == (1, 7, 12, 24, 30)
+
+    def test_quarter_hour_adds_daily_and_weekly(self):
+        from dataxid_profiling._analyzers._numeric import _derive_ts_lags
+
+        df = pl.DataFrame(
+            {
+                "val": [float(i) for i in range(200)],
+                "t": [datetime(2011, 1, 1, 0, 0) + timedelta(minutes=15 * i) for i in range(200)],
+            }
+        )
+        cfg = ProfileConfig(ts_sortby="t")
+        lags = _derive_ts_lags(df, cfg)
+        assert 96 in lags
+        assert 672 in lags
+
+    def test_explicit_lags_are_respected(self):
+        df = pl.DataFrame(
+            {
+                "val": [math.sin(2 * math.pi * i / 96) for i in range(400)],
+                "t": [datetime(2011, 1, 1, 0, 0) + timedelta(minutes=15 * i) for i in range(400)],
+            }
+        )
+        cfg = ProfileConfig(ts_sortby="t", ts_lags=(96, 672))
         stats = analyze_numeric(df, "val", cfg)
         assert stats.is_timeseries is True

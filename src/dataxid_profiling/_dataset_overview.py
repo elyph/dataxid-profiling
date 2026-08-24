@@ -108,7 +108,7 @@ def compute_time_index(
     length = df.height
     start: str | None = None
     end: str | None = None
-    period: float | None = None
+    period: str | float | None = None
 
     if datetime_cols:
         first_dt = datetime_cols[0]
@@ -116,11 +116,14 @@ def compute_time_index(
         if isinstance(dt_stats, DatetimeStats):
             start = dt_stats.min
             end = dt_stats.max
-            period = dt_stats.sampling_interval_median_seconds
+            period = _format_period(
+                dt_stats.sampling_interval_median_seconds,
+                dt_stats.sampling_interval_std_seconds,
+            )
     else:
         start = "0"
         end = str(length - 1) if length > 0 else None
-        period = 1.0
+        period = "1.0 ± 0.0 s"
 
     original: dict[str, list[float]] = {}
     scaled: dict[str, list[float]] = {}
@@ -162,6 +165,15 @@ def compute_time_index(
         "original": original,
         "scaled": scaled,
     }
+
+
+def _format_period(median: float | None, std: float | None) -> str | None:
+    """Format the sampling interval as 'median ± std s' for the overview card."""
+    if median is None:
+        return None
+    if std is None:
+        return f"{median:.1f} s"
+    return f"{median:.1f} ± {std:.1f} s"
 
 
 def _scale_values(values: list[float]) -> list[float]:

@@ -41,7 +41,8 @@ class ProfileConfig:
     # Time series (numeric detection + analysis)
     ts_active: bool = True
     ts_autocorrelation_threshold: float = 0.7
-    ts_lags: tuple[int, ...] = (1, 7, 12, 24, 30)
+    # None → derive lag list from the sampling interval; a tuple overrides it.
+    ts_lags: tuple[int, ...] | None = None
     ts_significance: float = 0.05
     ts_adf_autolag: str = "AIC"
     ts_adf_maxlag: int | None = None
@@ -49,7 +50,10 @@ class ProfileConfig:
     ts_acf_pacf_max_points: int | None = 10_000
     ts_line_max_points: int = 5_000
     ts_pacf_acf_lag: int = 50
-    ts_seasonality_power_threshold: float = 0.1
+    # Dominant spectral peak must exceed this signal-to-noise ratio (peak /
+    # median PSD) to count as seasonal. Robust against white noise, where the
+    # max/median ratio stays near ln(n_bins).
+    ts_seasonality_snr_threshold: float = 20.0
     ts_sortby: str | None = None
 
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
@@ -96,12 +100,13 @@ class ProfileConfig:
                 f"got {self.ts_autocorrelation_threshold}"
             )
             raise ValueError(msg)
-        if not self.ts_lags:
-            msg = "ts_lags must be a non-empty tuple of positive integers"
-            raise ValueError(msg)
-        if any(lag < 1 for lag in self.ts_lags):
-            msg = f"ts_lags entries must be positive integers, got {self.ts_lags}"
-            raise ValueError(msg)
+        if self.ts_lags is not None:
+            if not isinstance(self.ts_lags, tuple) or not self.ts_lags:
+                msg = "ts_lags must be None or a non-empty tuple of positive integers"
+                raise ValueError(msg)
+            if any(not isinstance(lag, int) or lag < 1 for lag in self.ts_lags):
+                msg = f"ts_lags entries must be positive integers, got {self.ts_lags}"
+                raise ValueError(msg)
         if not 0.0 < self.ts_significance < 1.0:
             msg = f"ts_significance must be in (0, 1), got {self.ts_significance}"
             raise ValueError(msg)
@@ -126,10 +131,10 @@ class ProfileConfig:
         if self.ts_pacf_acf_lag < 1:
             msg = f"ts_pacf_acf_lag must be >= 1, got {self.ts_pacf_acf_lag}"
             raise ValueError(msg)
-        if not 0.0 < self.ts_seasonality_power_threshold <= 1.0:
+        if self.ts_seasonality_snr_threshold <= 0:
             msg = (
-                "ts_seasonality_power_threshold must be in (0, 1], "
-                f"got {self.ts_seasonality_power_threshold}"
+                "ts_seasonality_snr_threshold must be > 0, "
+                f"got {self.ts_seasonality_snr_threshold}"
             )
             raise ValueError(msg)
         if self.ts_sortby is not None and not isinstance(self.ts_sortby, str):

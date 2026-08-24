@@ -31,7 +31,7 @@ class TestProfileConfigDefaults:
         cfg = ProfileConfig()
         assert cfg.ts_active is True
         assert cfg.ts_autocorrelation_threshold == 0.7
-        assert cfg.ts_lags == (1, 7, 12, 24, 30)
+        assert cfg.ts_lags is None
         assert cfg.ts_significance == 0.05
         assert cfg.ts_adf_autolag == "AIC"
         assert cfg.ts_adf_maxlag is None
@@ -39,7 +39,7 @@ class TestProfileConfigDefaults:
         assert cfg.ts_acf_pacf_max_points == 10_000
         assert cfg.ts_line_max_points == 5_000
         assert cfg.ts_pacf_acf_lag == 50
-        assert cfg.ts_seasonality_power_threshold == 0.1
+        assert cfg.ts_seasonality_snr_threshold == 20.0
         assert cfg.ts_sortby is None
 
 
@@ -108,6 +108,10 @@ class TestProfileConfigValidation:
         with pytest.raises(ValueError, match="ts_lags"):
             ProfileConfig(ts_lags=(1, -7))
 
+    def test_ts_lags_explicit_tuple(self):
+        cfg = ProfileConfig(ts_lags=(96, 672))
+        assert cfg.ts_lags == (96, 672)
+
     def test_invalid_ts_significance(self):
         with pytest.raises(ValueError, match="ts_significance"):
             ProfileConfig(ts_significance=0.0)
@@ -136,9 +140,9 @@ class TestProfileConfigValidation:
         with pytest.raises(ValueError, match="ts_pacf_acf_lag"):
             ProfileConfig(ts_pacf_acf_lag=0)
 
-    def test_invalid_ts_seasonality_power_threshold(self):
-        with pytest.raises(ValueError, match="ts_seasonality_power_threshold"):
-            ProfileConfig(ts_seasonality_power_threshold=0)
+    def test_invalid_ts_seasonality_snr_threshold(self):
+        with pytest.raises(ValueError, match="ts_seasonality_snr_threshold"):
+            ProfileConfig(ts_seasonality_snr_threshold=0)
 
     def test_ts_sortby_default_none(self):
         cfg = ProfileConfig()

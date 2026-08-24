@@ -10,6 +10,16 @@ from dataxid_profiling._type_inference import ColumnType
 if TYPE_CHECKING:
     from dataxid_profiling._config import ProfileConfig
 
+# Ordinal/categorical integer codes (season, yr, holiday, workingday,
+# weathersit) live in a small dense range and repeat by design. They would
+# trivially pass a lag autocorrelation test, but the pattern carries no
+# time-series information. Detection is data-adaptive: an integer column is an
+# ordinal code only when it has few distinct values AND those values fall in a
+# small, dense, low-magnitude range. A measurement with few values but a wide
+# spread (e.g. [0, 10, 1000, 5000]) stays eligible for TS analysis.
+_ORDINAL_MAX_DISTINCT = 5
+_ORDINAL_MAX_ABS_VALUE = 100
+
 
 def analyze_numeric(df: pl.DataFrame, col_name: str, config: ProfileConfig) -> NumericStats:
     col = pl.col(col_name)
@@ -196,16 +206,11 @@ def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -
     if n < 3:
         return False
 
-    # Low-cardinality columns (yr/season/holiday/workingday) are categorical in
-    # ydata and cannot meaningfully be time series: their values repeat so often
-    # that any lag autocorrelates, but the signal carries no information. We use
-    # distinct < 6 so mnth (12) and weekday (7) still qualify as TS, matching
-    # ydata's numeric TS list on the bike hour dataset.
-    distinct = df.select(pl.col(col_name).n_unique()).item()
-    if distinct < 6:
+    if _is_ordinal_code(df, col_name):
         return False
 
-    for lag in config.ts_lags:
+    lags = config.ts_lags if config.ts_lags is not None else _derive_ts_lags(df, config)
+    for lag in lags:
         if lag >= n:
             continue
         orig = vals.slice(0, n - lag)
@@ -215,6 +220,70 @@ def _detect_timeseries(df: pl.DataFrame, col_name: str, config: ProfileConfig) -
             return True
 
     return False
+
+
+def _is_ordinal_code(df: pl.DataFrame, col_name: str) -> bool:
+    """True when an integer column is an ordinal code, not a time series.
+
+    Ordinal codes (season, yr, holiday, workingday, weathersit) are integers in
+    a small, dense, low-magnitude range. This adapts to the observed values
+    rather than a fixed distinct-count cutoff: a 4-value column spanning
+    0..3 is a code, but a 4-value column like [0, 10, 1000, 5000] is a
+    measurement and remains eligible for time-series analysis.
+    """
+    series = df.select(pl.col(col_name).drop_nulls()).get_column(col_name)
+    if not series.dtype.is_integer():
+        return False
+
+    distinct = series.n_unique()
+    if distinct > _ORDINAL_MAX_DISTINCT:
+        return False
+
+    min_val = series.min()
+    max_val = series.max()
+    if min_val is None or max_val is None:
+        return False
+    if abs(min_val) > _ORDINAL_MAX_ABS_VALUE or abs(max_val) > _ORDINAL_MAX_ABS_VALUE:
+        return False
+
+    # Dense range: the count of integers covered by [min, max] is close to the
+    # number of distinct values. season (1..4) has span 4 == distinct 4.
+    span = int(max_val) - int(min_val) + 1
+    return span <= distinct + 2
+
+
+def _derive_ts_lags(df: pl.DataFrame, config: ProfileConfig) -> tuple[int, ...]:
+    """Derive a lag list from the sampling interval when no explicit list is set.
+
+    Defaults to the original hourly-oriented lags; if ts_sortby points at a
+    datetime column, add daily and weekly lags derived from its median sampling
+    interval (e.g. 15-minute data gets 96 and 672).
+    """
+    base = (1, 7, 12, 24, 30)
+    sortby = config.ts_sortby
+    if sortby is None or sortby not in df.columns:
+        return base
+
+    try:
+        col = pl.col(sortby)
+        intervals = (
+            df.select(col)
+            .drop_nulls()
+            .select(col.diff().dt.total_seconds().abs().drop_nulls())
+        )
+        median = intervals.select(pl.col(sortby).median()).item()
+    except Exception:
+        return base
+
+    if not median or median <= 0:
+        return base
+
+    extra: list[int] = []
+    for target_seconds in (86_400, 604_800):
+        lag = round(target_seconds / median)
+        if lag not in base and lag >= 1:
+            extra.append(lag)
+    return tuple(base) + tuple(extra)
 
 
 def _pearson_corr(a: pl.Series, b: pl.Series) -> float | None:
@@ -333,14 +402,6 @@ def _detect_seasonality(
     if n < 16:
         return False, []
 
-    # Low-cardinality columns (e.g. season with 4 values, holiday binary) cannot
-    # carry a meaningful Fourier period — the spectrum reports spurious peaks
-    # that never represent real seasonality. Matches _detect_timeseries: columns
-    # with < 6 distinct values never reach the FFT stage.
-    distinct = df.select(pl.col(col_name).n_unique()).item()
-    if distinct < 6:
-        return False, []
-
     try:
         import numpy as np
         from scipy.signal import find_peaks, periodogram
@@ -365,8 +426,12 @@ def _detect_seasonality(
         total_power = float(psd_pos.sum())
         # Detrended flat signals (e.g. a pure linear trend) leave only a
         # near-zero numerical residue; treat them as non-seasonal instead of
-        # letting that residue dominate the power ratio.
+        # letting a tiny max/median ratio fire a spurious peak.
         if total_power <= 1e-8:
+            return False, []
+
+        noise_floor = float(np.median(psd_pos))
+        if noise_floor <= 0:
             return False, []
 
         peak_indices, _ = find_peaks(psd_pos)
@@ -374,8 +439,12 @@ def _detect_seasonality(
             return False, []
 
         peak_indices = peak_indices[np.argsort(psd_pos[peak_indices])[::-1]]
-        dominant = psd_pos[peak_indices[0]] / total_power
-        if dominant < config.ts_seasonality_power_threshold:
+        # Signal-to-noise ratio against the spectral median. White noise has
+        # max/median ~ ln(n_bins); a real periodic signal stands far above it.
+        # Using the median (not total power) stops broadband power from
+        # drowning out a weak but coherent daily/weekly peak.
+        snr = float(psd_pos[peak_indices[0]] / noise_floor)
+        if snr < config.ts_seasonality_snr_threshold:
             return False, []
 
         periods = _harmonic_filtered_periods(freq, peak_indices)
