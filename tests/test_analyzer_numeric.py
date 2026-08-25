@@ -434,6 +434,26 @@ class TestNumericSeasonality:
         assert stats.is_seasonal is False
         assert stats.seasonal_periods == []
 
+    def test_mostly_missing_not_seasonal_by_default(self):
+        # A seasonal signal whose first 90% is null: the default completeness
+        # guard must suppress the FFT even though the surviving tail is coherent.
+        vals = [None] * 900 + [math.sin(2 * math.pi * i / 7) for i in range(100)]
+        df = pl.DataFrame({"x": vals})
+        stats = analyze_numeric(df, "x", ProfileConfig())
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_mostly_missing_seasonal_when_threshold_lowered(self):
+        vals = [None] * 900 + [math.sin(2 * math.pi * i / 7) for i in range(100)]
+        df = pl.DataFrame({"x": vals})
+        stats = analyze_numeric(df, "x", ProfileConfig(ts_seasonality_min_completeness=0.05))
+        assert stats.is_seasonal is True
+
+    def test_fully_observed_seasonal_still_seasonal(self, config: ProfileConfig):
+        df = pl.DataFrame({"x": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        stats = analyze_numeric(df, "x", config)
+        assert stats.is_seasonal is True
+
     def test_ts_active_false_not_seasonal(self):
         df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
         config = ProfileConfig(ts_active=False)

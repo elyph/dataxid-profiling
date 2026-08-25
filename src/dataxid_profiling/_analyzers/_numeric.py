@@ -467,6 +467,18 @@ def _detect_seasonality(
     df: pl.DataFrame, col_name: str, config: ProfileConfig
 ) -> tuple[bool, list[float]]:
     """Detect periodic seasonality via FFT power-spectrum peak detection."""
+    n_rows = df.height
+    if n_rows == 0:
+        return False, []
+
+    null_count = df.select(pl.col(col_name).null_count()).item()
+    completeness = 1.0 - (null_count / n_rows)
+    # Heavily-missing series get their nulls dropped before the FFT, which
+    # compresses the time axis and lets an N-step cycle masquerade as a
+    # real N-unit period. Skip the FFT below the completeness threshold.
+    if completeness < config.ts_seasonality_min_completeness:
+        return False, []
+
     vals = _ordered_series(df, col_name, config)
     if vals.len() < _MIN_POINTS_SEASONALITY:
         return False, []

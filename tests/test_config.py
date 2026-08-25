@@ -39,6 +39,7 @@ class TestProfileConfigDefaults:
         assert cfg.ts_acf_pacf_max_points == 10_000
         assert cfg.ts_line_max_points == 5_000
         assert cfg.ts_pacf_acf_lag == 50
+        assert cfg.ts_seasonality_min_completeness == 0.5
         assert cfg.ts_seasonality_snr_threshold == 20.0
         assert cfg.ts_sortby is None
 
@@ -143,6 +144,14 @@ class TestProfileConfigValidation:
     def test_invalid_ts_seasonality_snr_threshold(self):
         with pytest.raises(ValueError, match="ts_seasonality_snr_threshold"):
             ProfileConfig(ts_seasonality_snr_threshold=0)
+
+    def test_invalid_ts_seasonality_min_completeness_zero(self):
+        with pytest.raises(ValueError, match="ts_seasonality_min_completeness"):
+            ProfileConfig(ts_seasonality_min_completeness=0)
+
+    def test_invalid_ts_seasonality_min_completeness_over_one(self):
+        with pytest.raises(ValueError, match="ts_seasonality_min_completeness"):
+            ProfileConfig(ts_seasonality_min_completeness=1.5)
 
     def test_ts_sortby_default_none(self):
         cfg = ProfileConfig()

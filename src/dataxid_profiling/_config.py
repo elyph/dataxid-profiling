@@ -50,6 +50,11 @@ class ProfileConfig:
     ts_acf_pacf_max_points: int | None = 10_000
     ts_line_max_points: int = 5_000
     ts_pacf_acf_lag: int = 50
+    # Skip FFT seasonality for a column whose non-null share is below this.
+    # Heavily-missing series get their nulls dropped before the FFT, which
+    # compresses the time axis and lets an N-step cycle masquerade as an
+    # N-step period. This guard keeps the labeling honest on any dataset.
+    ts_seasonality_min_completeness: float = 0.5
     # Dominant spectral peak must exceed this signal-to-noise ratio (peak /
     # median PSD) to count as seasonal. Robust against white noise, where the
     # max/median ratio stays near ln(n_bins).
@@ -130,6 +135,12 @@ class ProfileConfig:
             raise ValueError(msg)
         if self.ts_pacf_acf_lag < 1:
             msg = f"ts_pacf_acf_lag must be >= 1, got {self.ts_pacf_acf_lag}"
+            raise ValueError(msg)
+        if not 0.0 < self.ts_seasonality_min_completeness <= 1.0:
+            msg = (
+                "ts_seasonality_min_completeness must be in (0, 1], "
+                f"got {self.ts_seasonality_min_completeness}"
+            )
             raise ValueError(msg)
         if self.ts_seasonality_snr_threshold <= 0:
             msg = (
