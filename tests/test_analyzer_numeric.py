@@ -331,7 +331,9 @@ class TestNumericTimeSeries:
             assert stats.is_stationary is True
 
     def test_seasonal_effective_stationary_false(self, config: ProfileConfig):
-        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"val": vals})
         stats = analyze_numeric(df, "val", config)
         assert stats.is_timeseries is True
         assert stats.is_seasonal is True
@@ -408,7 +410,9 @@ class TestNumericTimeSeries:
 
 class TestNumericSeasonality:
     def test_sine_is_seasonal(self, config: ProfileConfig):
-        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"val": vals})
         stats = analyze_numeric(df, "val", config)
         assert stats.is_timeseries is True
         assert stats.is_seasonal is True
@@ -444,13 +448,18 @@ class TestNumericSeasonality:
         assert stats.seasonal_periods == []
 
     def test_mostly_missing_seasonal_when_threshold_lowered(self):
-        vals = [None] * 900 + [math.sin(2 * math.pi * i / 7) for i in range(100)]
+        rng = random.Random(7)
+        vals = [None] * 900 + [
+            math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(100)
+        ]
         df = pl.DataFrame({"x": vals})
         stats = analyze_numeric(df, "x", ProfileConfig(ts_seasonality_min_completeness=0.05))
         assert stats.is_seasonal is True
 
     def test_fully_observed_seasonal_still_seasonal(self, config: ProfileConfig):
-        df = pl.DataFrame({"x": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"x": vals})
         stats = analyze_numeric(df, "x", config)
         assert stats.is_seasonal is True
 
@@ -476,6 +485,30 @@ class TestNumericSeasonality:
                 if p > fundamental:
                     ratio = p / fundamental
                     assert abs(ratio - round(ratio)) >= 0.01
+
+    def test_low_variance_broad_bump_not_seasonal(self, config: ProfileConfig):
+        """Slow AR(1) passes the SNR gate but fails the ACF gate."""
+        rng = random.Random(42)
+        n = 500
+        vals = [0.0]
+        for _ in range(n - 1):
+            vals.append(0.95 * vals[-1] + rng.gauss(0, 0.05))
+        df = pl.DataFrame({"val": vals})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.is_seasonal is False
+        assert stats.seasonal_periods == []
+
+    def test_nonstandard_period_is_seasonal(self, config: ProfileConfig):
+        """A real 15-day period survives the ACF gate."""
+        rng = random.Random(7)
+        n = 300
+        vals = [math.sin(2 * math.pi * i / 15) + rng.gauss(0, 0.15) for i in range(n)]
+        df = pl.DataFrame({"val": vals})
+        stats = analyze_numeric(df, "val", config)
+        assert stats.is_timeseries is True
+        assert stats.is_seasonal is True
+        assert any(p == pytest.approx(15, abs=1.0) for p in stats.seasonal_periods)
 
 
 class TestNumericSortby:

@@ -396,8 +396,11 @@ class TestRenderTimeSeries:
 
     def test_seasonal_periods_row_present(self):
         import math
+        import random
 
-        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"val": vals})
         html = _render(df)
         assert "Seasonal Periods" in html
 

@@ -55,10 +55,10 @@ class ProfileConfig:
     # compresses the time axis and lets an N-step cycle masquerade as an
     # N-step period. This guard keeps the labeling honest on any dataset.
     ts_seasonality_min_completeness: float = 0.5
-    # Dominant spectral peak must exceed this signal-to-noise ratio (peak /
-    # median PSD) to count as seasonal. Robust against white noise, where the
-    # max/median ratio stays near ln(n_bins).
-    ts_seasonality_snr_threshold: float = 20.0
+    # Seasonal peaks are selected with ydata's median + MAD rule: a spectral
+    # peak must exceed this many median-absolute-deviations above the median
+    # (computed on the detrended FFT amplitude spectrum). Larger is stricter.
+    ts_seasonality_mad_threshold: float = 6.0
     ts_sortby: str | None = None
 
     # Profiling depth: "complete" (default) or "overview" (skip expensive computations)
@@ -142,10 +142,10 @@ class ProfileConfig:
                 f"got {self.ts_seasonality_min_completeness}"
             )
             raise ValueError(msg)
-        if self.ts_seasonality_snr_threshold <= 0:
+        if self.ts_seasonality_mad_threshold <= 0:
             msg = (
-                "ts_seasonality_snr_threshold must be > 0, "
-                f"got {self.ts_seasonality_snr_threshold}"
+                "ts_seasonality_mad_threshold must be > 0, "
+                f"got {self.ts_seasonality_mad_threshold}"
             )
             raise ValueError(msg)
         if self.ts_sortby is not None and not isinstance(self.ts_sortby, str):

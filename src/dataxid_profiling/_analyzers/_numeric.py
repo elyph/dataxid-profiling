@@ -484,73 +484,93 @@ def _detect_seasonality(
         return False, []
 
     try:
-        freq, psd = _periodogram_spectrum(vals)
-        peak_indices, snr = _seasonal_peaks(freq, psd)
+        freq, ampl = _periodogram_spectrum(vals)
+        peak_indices = _seasonal_peaks(freq, ampl, config)
     except Exception:
         return False, []
 
-    if peak_indices is None or snr < config.ts_seasonality_snr_threshold:
+    if peak_indices is None or peak_indices.size == 0:
         return False, []
 
     return True, _harmonic_filtered_periods(freq, peak_indices)
 
 
 def _periodogram_spectrum(vals: pl.Series) -> tuple[Any, Any]:
-    """Compute the positive one-sided power spectrum of a numeric series.
+    """Compute the positive one-sided FFT amplitude spectrum (dB).
 
-    A rectangular window plus linear detrend keeps the scaling consistent and
-    avoids computing the symmetric negative frequencies of a real signal.
-    Returns the positive frequencies and their PSD, or (None, None) when the
+    Linear detrend removes a monotonic trend (e.g. the CO2 rise) so it does not
+    dominate the low-frequency bins and hide a real annual peak. Returns the
+    positive frequencies and their decibel amplitudes, or (None, None) when the
     series is flat.
     """
-    from scipy.signal import periodogram
+    import numpy as np
+    from scipy.fft import _pocketfft
+    from scipy.signal import detrend
 
     n = vals.len()
-    freq, psd = periodogram(
-        vals.to_numpy(),
-        fs=1.0,
-        window="boxcar",
-        detrend="linear",
-        return_onesided=True,
-        scaling="spectrum",
-    )
+    x = detrend(vals.to_numpy(), type="linear")
+    data_fft = _pocketfft.fft(x)
+    psd = np.abs(data_fft) ** 2
 
+    freq = _fftfreq(n)
     pos = (freq > 0) & (freq > (_MIN_FREQ_CYCLES / n))
     freq = freq[pos]
-    psd_pos = psd[pos]
+    psd = psd[pos]
+
     # Detrended flat signals (e.g. a pure linear trend) leave only a near-zero
     # numerical residue; return None so the caller treats them as non-seasonal.
-    if float(psd_pos.sum()) <= _SEASONAL_TOTAL_POWER_EPS:
+    if float(psd.sum()) <= _SEASONAL_TOTAL_POWER_EPS:
         return None, None
-    return freq, psd_pos
+
+    with np.errstate(divide="ignore"):
+        ampl = 10.0 * np.log10(psd)
+    return freq, ampl
 
 
-def _seasonal_peaks(freq: Any, psd: Any) -> tuple[Any, float]:
-    """Return candidate peak indices (strongest first) and their best SNR.
+def _fftfreq(n: int) -> Any:
+    """Return sample frequencies matching scipy's pocketfft convention."""
+    import numpy as np
 
-    Peaks are found on the positive spectrum; the signal-to-noise ratio is the
-    strongest peak against the spectral median. White noise has max/median ~
-    ln(n_bins), so a real periodic signal stands far above it. Using the median
-    (not total power) stops broadband power from drowning out a weak but
-    coherent daily/weekly peak.
+    val = 1.0 / n
+    results = np.empty(n, dtype=int)
+    half = (n - 1) // 2 + 1
+    results[:half] = np.arange(0, half, dtype=int)
+    results[half:] = np.arange(-(n // 2), 0, dtype=int)
+    return results * val
+
+
+def _seasonal_peaks(freq: Any, ampl: Any, config: ProfileConfig) -> Any:
+    """Select seasonal peak indices using ydata's median + MAD threshold.
+
+    The threshold is computed on the decibel amplitude spectrum above zero; a
+    peak must exceed ``median + mad_threshold * MAD`` to be kept. Unlike the
+    earlier SNR rule, this stays matched to ydata while the linear detrend
+    upstream still preserves real low-frequency (e.g. annual) seasonality.
     """
     import numpy as np
     from scipy.signal import find_peaks
 
-    if freq is None or psd is None:
-        return None, 0.0
+    if freq is None or ampl is None:
+        return None
 
-    noise_floor = float(np.median(psd))
-    if noise_floor <= 0:
-        return None, 0.0
+    pos_ampl = ampl[ampl > 0]
+    if pos_ampl.size == 0:
+        return None
 
-    peak_indices, _ = find_peaks(psd)
-    if len(peak_indices) == 0:
-        return None, 0.0
+    median = float(np.median(pos_ampl))
+    above = pos_ampl[pos_ampl > median]
+    mad = float(np.abs(above - above.mean()).mean()) if above.size else 0.0
+    threshold = median + config.ts_seasonality_mad_threshold * mad
 
-    peak_indices = peak_indices[np.argsort(psd[peak_indices])[::-1]]
-    snr = float(psd[peak_indices[0]] / noise_floor)
-    return peak_indices, snr
+    peak_indices, _ = find_peaks(ampl, threshold=0.1)
+    if peak_indices.size == 0:
+        return None
+
+    peak_indices = peak_indices[ampl[peak_indices] > threshold]
+    if peak_indices.size == 0:
+        return None
+
+    return peak_indices[np.argsort(ampl[peak_indices])[::-1]]
 
 
 def _harmonic_filtered_periods(freq: Any, peak_indices: Any) -> list[float]:

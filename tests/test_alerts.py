@@ -369,7 +369,9 @@ class TestTimeSeriesAlerts:
     def test_sine_seasonal_alert(self):
         import math
 
-        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"val": vals})
         alerts = _get_alerts(df)
         col_alerts = _alerts_for_column(alerts, "val")
         seasonal = [a for a in col_alerts if a.alert_type == AlertType.SEASONAL]
@@ -379,7 +381,9 @@ class TestTimeSeriesAlerts:
     def test_seasonal_also_non_stationary(self):
         import math
 
-        df = pl.DataFrame({"val": [math.sin(2 * math.pi * i / 7) for i in range(200)]})
+        rng = random.Random(7)
+        vals = [math.sin(2 * math.pi * i / 7) + rng.gauss(0, 0.3) for i in range(200)]
+        df = pl.DataFrame({"val": vals})
         alerts = _get_alerts(df)
         col_alerts = _alerts_for_column(alerts, "val")
         types = {a.alert_type for a in col_alerts}
